@@ -117,7 +117,7 @@ class QuadrupedFlat : public Task {
 
     // target torso height over feet when quadrupedal
     // constexpr static double kHeightQuadruped = 0.25;  // meter
-    constexpr static double kHeightQuadruped = 0.30;  // meter
+    constexpr static double kHeightQuadruped = 0.32;  // meter
 
     // target torso height over feet when bipedal
     constexpr static double kHeightBiped = 0.50;       // meter
