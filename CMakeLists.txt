@@ -103,6 +103,12 @@ set(BUILD_SHARED_LIBS
     CACHE INTERNAL "Build SHARED libraries"
 )
 
+set(MUJOCO_DEP_VERSION_gtest
+    release-1.14.0
+    CACHE STRING "Version of gtest to be fetched."
+    FORCE
+)
+
 findorfetch(
   USE_SYSTEM_PACKAGE
   OFF
