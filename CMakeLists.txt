@@ -104,7 +104,7 @@ set(BUILD_SHARED_LIBS
 )
 
 set(MUJOCO_DEP_VERSION_gtest
-    release-1.14.0
+    main
     CACHE STRING "Version of gtest to be fetched."
     FORCE
 )
