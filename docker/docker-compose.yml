@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  mujoco_mpc:
+    image: docker-mujoco-mpc
+    container_name: mujoco_mpc
+
+    shm_size: '12gb'
+
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        USER_ID: ${USER_ID:-1046}
+        GROUP_ID: ${GROUP_ID:-1046}
+
+    user: "${USER_ID:-1046}:${GROUP_ID:-1046}"
+
+    network_mode: host
+    ipc: host
+
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: 1
+      XDG_RUNTIME_DIR: /tmp/runtime-${USER}
+      HOME: /home/dimos
+
+    security_opt:
+      - seccomp=unconfined
+
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+
+    volumes:
+      - ${PWD}:/home/dimos/mujoco_mpc
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - $HOME/.Xauthority:/home/dimos/.Xauthority:rw
+      - $HOME/.gitconfig:/home/dimos/.gitconfig:rw
+      - $HOME/.ssh:/home/dimos/.ssh:ro
+      - /tmp/runtime-$USER:/tmp/runtime-$USER
+
+    privileged: true
+    runtime: nvidia
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
