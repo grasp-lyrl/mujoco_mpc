@@ -2054,6 +2054,27 @@ void Simulate::RenderLoop() {
       // poll and handle events
       this->platform_ui->PollEvents();
 
+      // upload assets if requested
+      bool upload_notify = false;
+      if (hfield_upload_ != -1) {
+        mjr_uploadHField(m, &platform_ui->mjr_context(), hfield_upload_);
+        hfield_upload_ = -1;
+        upload_notify = true;
+      }
+      if (mesh_upload_ != -1) {
+        mjr_uploadMesh(m, &platform_ui->mjr_context(), mesh_upload_);
+        mesh_upload_ = -1;
+        upload_notify = true;
+      }
+      if (texture_upload_ != -1) {
+        mjr_uploadTexture(m, &platform_ui->mjr_context(), texture_upload_);
+        texture_upload_ = -1;
+        upload_notify = true;
+      }
+      if (upload_notify) {
+        cond_upload_.notify_all();
+      }
+
       // prepare to render
       this->PrepareScene();
     }  // std::lock_guard<std::mutex> (unblocks simulation thread)
@@ -2065,6 +2086,34 @@ void Simulate::RenderLoop() {
   this->exitrequest.store(true);
 
   mjv_freeScene(&this->scn);
+}
+
+// Thread-safe asset upload methods
+void Simulate::UpdateHField(int hfieldid) {
+  std::unique_lock<std::mutex> lock(this->mtx);
+  if (!m || hfieldid < 0 || hfieldid >= m->nhfield) {
+    return;
+  }
+  hfield_upload_ = hfieldid;
+  cond_upload_.wait(lock, [this]() { return hfield_upload_ == -1; });
+}
+
+void Simulate::UpdateMesh(int meshid) {
+  std::unique_lock<std::mutex> lock(this->mtx);
+  if (!m || meshid < 0 || meshid >= m->nmesh) {
+    return;
+  }
+  mesh_upload_ = meshid;
+  cond_upload_.wait(lock, [this]() { return mesh_upload_ == -1; });
+}
+
+void Simulate::UpdateTexture(int texid) {
+  std::unique_lock<std::mutex> lock(this->mtx);
+  if (!m || texid < 0 || texid >= m->ntex) {
+    return;
+  }
+  texture_upload_ = texid;
+  cond_upload_.wait(lock, [this]() { return texture_upload_ == -1; });
 }
 
 }  // namespace mujoco

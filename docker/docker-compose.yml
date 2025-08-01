@@ -11,10 +11,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       args:
-        USER_ID: ${USER_ID:-1046}
-        GROUP_ID: ${GROUP_ID:-1046}
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
 
-    user: "${USER_ID:-1046}:${GROUP_ID:-1046}"
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
 
     network_mode: host
     ipc: host
@@ -25,6 +25,9 @@ services:
       QT_X11_NO_MITSHM: 1
       XDG_RUNTIME_DIR: /tmp/runtime-${USER}
       HOME: /home/dimos
+      # Use NVIDIA GPU for rendering
+      __NV_PRIME_RENDER_OFFLOAD: 1
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
 
     security_opt:
       - seccomp=unconfined

@@ -82,6 +82,11 @@ class MJSIMULATEAPI Simulate {
   // loop to render the UI (must be called from main thread because of MacOS)
   void RenderLoop();
 
+  // Thread-safe asset upload methods (callable from simulation thread)
+  void UpdateHField(int hfieldid);
+  void UpdateMesh(int meshid);
+  void UpdateTexture(int texid);
+
   static constexpr int kMaxFilenameLength = 1000;
 
   // model and data to be visualized
@@ -93,6 +98,12 @@ class MJSIMULATEAPI Simulate {
   mjData* d = nullptr;
   std::mutex mtx;
   std::condition_variable cond_loadrequest;
+
+  // upload assets - for thread-safe uploads from simulation thread
+  std::condition_variable cond_upload_;
+  int hfield_upload_ = -1;
+  int mesh_upload_ = -1;
+  int texture_upload_ = -1;
 
   // options
   int spacing = 0;
