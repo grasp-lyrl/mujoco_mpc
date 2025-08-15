@@ -1,8 +1,8 @@
 <mujoco model="Unitree Go2">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
-  <option cone="elliptic" impratio="100" integrator="implicitfast" timestep="0.0005"/>
-
+  <option cone="pyramidal" impratio="10" integrator="implicitfast" timestep="0.0015" iterations="10" tolerance="5e-6"/>
+  
   <default>
     <default class="go2">
       <geom friction="0.6" margin="0.001" condim="1"/>
@@ -95,8 +95,8 @@
       <geom mesh="base_3" material="white" class="visual" />
       <geom mesh="base_4" material="gray"  class="visual" />
       <geom size="0.1881 0.04675 0.057" type="box" class="collision" />
-      <geom size="0.05 0.045" pos="0.285 0 0.01" type="cylinder" class="collision" />
-      <geom size="0.047" pos="0.293 0 -0.06" class="collision" />
+             <geom size="0.05 0.045" pos="0.285 0 0.01" type="cylinder" class="collision"/>
+       <geom size="0.047" pos="0.293 0 -0.06" class="collision"/>
 
       <site name="imu" pos="-0.02557 0 0.04232" />
 
@@ -129,10 +129,10 @@
             <joint name="FL_calf_joint" class="knee" />
             <geom mesh="calf_0" material="gray" class="visual" />
             <geom mesh="calf_1" material="black" class="visual" />
-            <geom size="0.012 0.06" pos="0.008 0 -0.06" quat="0.994493 0 -0.104807 0"
-              type="cylinder" class="collision" />
-            <geom size="0.011 0.0325" pos="0.02 0 -0.148" quat="0.999688 0 0.0249974 0"
-              type="cylinder" class="collision" />
+                         <geom size="0.012 0.06" pos="0.008 0 -0.06" quat="0.994493 0 -0.104807 0"
+               type="cylinder" class="collision"/>
+             <geom size="0.011 0.0325" pos="0.02 0 -0.148" quat="0.999688 0 0.0249974 0"
+               type="cylinder" class="collision"/>
               
             <geom pos="0 0 -0.213" mesh="foot" class="visual" material="black" />
             <geom name="FL" class="foot" />
@@ -169,9 +169,9 @@
             <geom mesh="calf_mirror_0" material="gray" class="visual" />
             <geom mesh="calf_mirror_1" material="black" class="visual" />
             <geom size="0.013 0.06" pos="0.01 0 -0.06" quat="0.995004 0 -0.0998334 0"
-              type="cylinder" class="collision" />
+              type="cylinder" class="collision"/>
             <geom size="0.011 0.0325" pos="0.02 0 -0.148" quat="0.999688 0 0.0249974 0"
-              type="cylinder" class="collision" />
+              type="cylinder" class="collision"/>
             <geom pos="0 0 -0.213" mesh="foot" class="visual" material="black" />
             <geom name="FR" class="foot" />
             <body name="FR_foot" pos="0 0 -0.213" />
@@ -208,9 +208,9 @@
             <geom mesh="calf_0" material="gray" class="visual" />
             <geom mesh="calf_1" material="black" class="visual" />
             <geom size="0.013 0.06" pos="0.01 0 -0.06" quat="0.995004 0 -0.0998334 0"
-              type="cylinder" class="collision" />
+              type="cylinder" class="collision"/>
             <geom size="0.011 0.0325" pos="0.02 0 -0.148" quat="0.999688 0 0.0249974 0"
-              type="cylinder" class="collision" />
+              type="cylinder" class="collision"/>
             <geom pos="0 0 -0.213" mesh="foot" class="visual" material="black" />
             <geom name="HL" class="foot" />
             <body name="HL_foot" pos="0 0 -0.213" />
@@ -249,9 +249,9 @@
             <geom mesh="calf_mirror_0" material="gray" class="visual" />
             <geom mesh="calf_mirror_1" material="black" class="visual" />
             <geom size="0.013 0.06" pos="0.01 0 -0.06" quat="0.995004 0 -0.0998334 0"
-              type="cylinder" class="collision" />
+              type="cylinder" class="collision"/>
             <geom size="0.011 0.0325" pos="0.02 0 -0.148" quat="0.999688 0 0.0249974 0"
-              type="cylinder" class="collision" />
+              type="cylinder" class="collision"/>
             <geom pos="0 0 -0.213" mesh="foot" class="visual" material="black" />
             <geom name="HR" class="foot" />
             <body name="HR_foot" pos="0 0 -0.213" />

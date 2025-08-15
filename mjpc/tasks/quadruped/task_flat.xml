@@ -1,6 +1,6 @@
 <mujoco model="Quadruped">
   <include file="../common.xml"/>
-  <size memory="1M"/>
+  <size memory="1M" nconmax="16"/>
 
   <statistic center="0 0 0.1" extent="0.8"/>
 
@@ -46,6 +46,11 @@
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
       markrgb="0.8 0.8 0.8" width="300" height="300"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+
+    <hfield name="hf133"
+          file="../assets/white_16x32.png"
+          size="0.5 0.25 2.0 0.001"/>
+
   </asset>
 
   <visual>
@@ -57,6 +62,17 @@
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <geom name="terrain"
+          pos="0.7 -0.7 0"
+          type="hfield"
+          hfield="hf133"
+          material="groundplane"
+          friction="1.2 0.02 0.01"
+          solref="0.02 1" solimp="0.9 0.95 0.01"
+          condim="6"
+          priority="1"/>
+
     <body name="goal" mocap="true" pos=".3 0 0.26">
       <geom size="0.12" contype="0" conaffinity="0" rgba="0 1 0 .5" group="2"/>
     </body>
@@ -64,6 +80,7 @@
 
   <!-- go2 model -->
   <include file="go2.xml" />
+
 
   <!-- home pose -->
   <!-- <keyframe>
