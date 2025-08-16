@@ -1,4 +1,4 @@
-<mujoco model="Quadruped">
+<mujoco model="Quadruped Pose">
   <include file="../common.xml"/>
   <size memory="1M" nconmax="16"/>
 
@@ -32,6 +32,10 @@
     <numeric name="residual_Heading" data="0 -3.14 3.14"/>
     <numeric name="residual_Arm posture" data=".03 0 1"/>
 
+    <!-- Pose selection tab -->
+    <text name="residual_list_Pose" data="None|Pose 1|Pose 2|Pose 3|Pose 4|Pose 5|Pose 6"/>
+    <numeric name="residual_select_Pose" data="0"/>
+
     <!-- estimator -->
     <numeric name="estimator" data="1"/>
     <numeric name="estimator_sensor_start" data="9"/>
@@ -39,7 +43,15 @@
     <numeric name="estimator_timestep" data="0.005"/>
     <numeric name="batch_configuration_length" data="3"/>
     <numeric name="batch_scale_prior" data="1.0e-3"/>
+    <!-- planner defaults -->
+    <numeric name="derivative_skip" data="3"/>
   </custom>
+
+  <!-- Pose residual term must be declared before non-user sensors appear in go2.xml -->
+  <sensor>
+    <!-- 12-dim residual: 3 (pos) + 9 (rotmat difference). Weight defaults to 0.2 with L2 norm (2) and epsilon 0.1 -->
+    <user name="Pose" dim="12" user="2 0.2 0 2 0.1"/>
+  </sensor>
 
   <asset>
     <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
@@ -48,8 +60,8 @@
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
 
     <hfield name="hf133"
-          file="../assets/white_16x32.png"
-          size="0.5 0.25 2.0 0.001"/>
+          file="../assets/grad_26x13.png"
+          size="0.5 0.25 0.4 0.001"/>
 
   </asset>
 
@@ -64,7 +76,7 @@
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
 
     <geom name="terrain"
-          pos="0.7 0 0"
+          pos="0.8 0 0"
           type="hfield"
           hfield="hf133"
           material="groundplane"
@@ -81,18 +93,16 @@
   <!-- go2 model -->
   <include file="go2.xml" />
 
-
-  <!-- home pose -->
-  <!-- <keyframe>
-    <key name="home"
-      qpos="0 0 0.33 1 0 0 0 0 0.8 -1.5 0 0.8 -1.5 0 0.8 -1.5 0 0.8 -1.5"
-      ctrl="0 0.8 -1.5 0 0.8 -1.5 0 0.8 -1.5 0 0.8 -1.5"/>
-  </keyframe> -->
-
-  <!-- original pose -->
+  <!-- keyframes: default 'home' plus 5 pose keys. Initialize poses equal to 'home' to start. -->
   <keyframe>
     <key name="home" qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"
       ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>
+    <key name="pose1" mpos="0.3 0 0.26" mquat="1 0 0 0"/>
+    <key name="pose2" mpos="0.4 0 0.26" mquat="1 0 0 0"/>
+    <key name="pose3" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
+    <key name="pose4" mpos="0.6 0 0.26" mquat="1 0 0 0"/>
+    <key name="pose5" mpos="0.7 0 0.26" mquat="1 0 0 0"/>
+    <key name="pose6" mpos="0.7 0 0.432" mquat="0.951 0.0421 -0.2936 -0.0901"/>
   </keyframe>
 
-</mujoco>
+</mujoco> 

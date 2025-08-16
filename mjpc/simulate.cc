@@ -1053,6 +1053,8 @@ int ComputeFontScale(const mj::PlatformUIAdapter& platform_ui) {
   fs = mju_round(fs * 0.02) * 50;
   fs = mjMIN(300, mjMAX(100, fs));
 
+  // override: start at 100% by default
+  fs = 100;
   return fs;
 }
 
