@@ -2,7 +2,7 @@
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
   <!-- <option cone="pyramidal" impratio="10" integrator="implicitfast" timestep="0.0015" iterations="10" tolerance="5e-6"/> -->
-  <option cone="pyramidal" impratio="20" integrator="implicitfast" timestep="0.001" iterations="20" tolerance="1e-6"/>
+  <option cone="elliptic" impratio="20" integrator="implicitfast" timestep="0.001" iterations="20" tolerance="1e-6"/>
   
   <default>
     <default class="go2">
