@@ -1279,9 +1279,9 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   if (residual_.upright_cost_id_ >= 0) weight[residual_.upright_cost_id_] = 1.0;  // Upright
   if (residual_.height_cost_id_ >= 0) weight[residual_.height_cost_id_] = 1.0;    // Height
   if (position_cost_id >= 0) weight[position_cost_id] = 0.2;                      // Position
-  if (residual_.balance_cost_id_ >= 0) weight[residual_.balance_cost_id_] = 0.3;  // Balance
-  if (effort_cost_id >= 0) weight[effort_cost_id] = 0.025;                         // Effort
-  if (posture_cost_id >= 0) weight[posture_cost_id] = 0.035;                       // Posture
+  if (residual_.balance_cost_id_ >= 0) weight[residual_.balance_cost_id_] = 0.2;  // Balance
+  if (effort_cost_id >= 0) weight[effort_cost_id] = 0.08;                         // Effort
+  if (posture_cost_id >= 0) weight[posture_cost_id] = 0.02;                       // Posture
   if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;                 // Orientation
   if (angmom_cost_id >= 0) weight[angmom_cost_id] = 0.0;                           // Angmom
 
