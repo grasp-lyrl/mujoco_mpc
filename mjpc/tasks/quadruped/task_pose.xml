@@ -60,8 +60,13 @@
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
 
     <hfield name="hf133"
-          file="../assets/gray_26x16.png"
+          file="../assets/white_21x13.png"
           size="0.5 0.3 0.4 0.001"/>
+
+    <!-- texture/material for terrain hfield: dark purple with orange grid lines -->
+    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge" rgb1="0.18 0.0 0.25" rgb2="0.10 0.0 0.15"
+      markrgb="1.0 0.5 0.0" width="300" height="300"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="8 8" reflectance="0.1"/>
 
   </asset>
 
@@ -79,10 +84,10 @@
           pos="0.8 0 0"
           type="hfield"
           hfield="hf133"
-          material="groundplane"
+          material="terrain_mat"
           friction="1.2 0.02 0.01"
           solref="0.02 1" solimp="0.9 0.95 0.01"
-          condim="6"
+          condim="3"
           priority="1"/>
 
     <body name="goal" mocap="true" pos=".3 0 0.26">
