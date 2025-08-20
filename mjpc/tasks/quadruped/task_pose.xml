@@ -20,9 +20,9 @@
     <text name="residual_list_Gait" data="Stand|Walk|Trot|Canter|Gallop"/>
     <numeric name="residual_select_Gait switch" data="1"/>
     <text name="residual_list_Gait switch" data="Manual|Automatic"/>
-    <numeric name="residual_Cadence" data="2 0 4"/>
+    <numeric name="residual_Cadence" data="0.95 0 4"/>
     <numeric name="residual_Amplitude" data=".06 0 0.2"/>
-    <numeric name="residual_Duty ratio" data="0 0 1"/>
+    <numeric name="residual_Duty ratio" data="0.75 0 1"/>
     <numeric name="residual_Walk speed" data="0 0 4"/>
     <numeric name="residual_Walk turn" data="0 -2 2"/>
     <numeric name="residual_select_Flip dir" data="0"/>
@@ -44,7 +44,7 @@
     <numeric name="batch_configuration_length" data="3"/>
     <numeric name="batch_scale_prior" data="1.0e-3"/>
     <!-- planner defaults -->
-    <numeric name="derivative_skip" data="0"/>
+    <numeric name="derivative_skip" data="2"/>
   </custom>
 
   <!-- Pose residual term must be declared before non-user sensors appear in go2.xml -->
