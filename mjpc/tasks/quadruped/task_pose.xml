@@ -1,6 +1,6 @@
 <mujoco model="Quadruped Pose">
   <include file="../common.xml"/>
-  <size memory="1M" nconmax="16"/>
+  <size memory="16M" nconmax="256"/>
 
   <statistic center="0 0 0.1" extent="0.8"/>
 
@@ -60,13 +60,13 @@
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
 
     <hfield name="hf133"
-          file="../assets/white_21x13.png"
+          file="../assets/white_4x4.png"
           size="0.5 0.3 0.4 0.001"/>
 
     <!-- texture/material for terrain hfield: dark purple with orange grid lines -->
     <texture type="2d" name="terrain_tex" builtin="checker" mark="edge" rgb1="0.18 0.0 0.25" rgb2="0.10 0.0 0.15"
       markrgb="1.0 0.5 0.0" width="300" height="300"/>
-    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="8 8" reflectance="0.1"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="64 64" reflectance="0.1"/>
 
   </asset>
 
@@ -78,17 +78,14 @@
 
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
-    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" contype="0" conaffinity="0"/>
 
     <geom name="terrain"
           pos="0 0 0"
           type="hfield"
           hfield="hf133"
           material="terrain_mat"
-          friction="1.2 0.02 0.01"
-          solref="0.02 1" solimp="0.9 0.95 0.01"
-          condim="3"
-          priority="1"/>
+          condim="3"/>
 
     <body name="goal" mocap="true" pos=".3 0 0.26">
       <geom size="0.12" contype="0" conaffinity="0" rgba="0 1 0 .5" group="2"/>
