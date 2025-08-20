@@ -44,7 +44,7 @@
     <numeric name="batch_configuration_length" data="3"/>
     <numeric name="batch_scale_prior" data="1.0e-3"/>
     <!-- planner defaults -->
-    <numeric name="derivative_skip" data="3"/>
+    <numeric name="derivative_skip" data="0"/>
   </custom>
 
   <!-- Pose residual term must be declared before non-user sensors appear in go2.xml -->
@@ -81,7 +81,7 @@
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
 
     <geom name="terrain"
-          pos="0.8 0 0"
+          pos="0 0 0"
           type="hfield"
           hfield="hf133"
           material="terrain_mat"

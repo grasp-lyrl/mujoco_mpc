@@ -3,7 +3,8 @@
 
   <!-- <option cone="pyramidal" impratio="10" integrator="implicitfast" timestep="0.0015" iterations="10" tolerance="5e-6"/> -->
   <!-- <option cone="elliptic" impratio="100" integrator="implicitfast" timestep="0.001" iterations="20" tolerance="1e-6"/> -->
-  <option cone="pyramidal" impratio="80" integrator="implicitfast" timestep="0.0005"/>
+  <!-- <option cone="pyramidal" impratio="80" integrator="implicitfast" timestep="0.0005"/> -->\
+  <option cone="pyramidal" impratio="80" integrator="implicitfast" timestep="0.001"/>
   
   <default>
     <default class="go2">
@@ -43,7 +44,8 @@
       <default class="collision">
         <geom group="3"/>
         <default class="foot">
-	        <geom size="0.022" pos="-0.002 0 -0.213" priority="1" solimp="0.015 1 0.022" condim="6" friction="0.8 0.02 0.01"/>
+	        <!-- <geom size="0.022" pos="-0.002 0 -0.213" priority="1" solimp="0.015 1 0.022" condim="6" friction="0.8 0.02 0.01"/> -->
+          <geom size="0.022" pos="-0.002 0 -0.213" priority="1" solimp="0.015 1 0.022" condim="3" friction="0.8 0.02 0.01"/>
         </default>
       </default>
     </default>
