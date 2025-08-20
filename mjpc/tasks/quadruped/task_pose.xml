@@ -54,20 +54,16 @@
   </sensor>
 
   <asset>
+  
     <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
-    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
-      markrgb="0.8 0.8 0.8" width="300" height="300"/>
-    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
-
-
-
-
-
-    <!-- <hfield name="hf133" file="../assets/white_4x4.png" size="0.5 0.3 0.4 0.001"/> -->
-    <hfield name="hf133" file="../assets/white_21x13.png" size="0.5 0.35 1 2"/>
-    <texture type="2d" name="terrain_tex" file="assets/martian.png"/> <!-- builtin="checker" mark="edge" rgb1="0.18 0.0 0.25" rgb2="0.10 0.0 0.15" markrgb="1.0 0.5 0.0" width="300" height="300"/> -->
-    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="64 64" reflectance="0"/>
-
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.26 0.36 0.48" rgb2="0.16 0.26 0.38" markrgb="0.70 0.76 0.82" width="300" height="300"/>
+    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge" rgb1="0.78 0.82 0.88" rgb2="0.86 0.90 0.94" markrgb="0.62 0.68 0.74" width="300" height="300"/>
+    
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.04"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="12 12" reflectance="0"/>
+    
+    <hfield name="hf133" file="../assets/gradient_68x28.png" size="1.7 0.7 1 2"/>
+  
   </asset>
 
   <visual>
@@ -78,14 +74,11 @@
 
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
-    <geom name="floor" size="50 50 0.05" pos="0 0 -0.01" type="plane" material="groundplane"/>
+    <geom name="floor" size="0 0 0.05" pos="0 0 -0.01" type="plane" material="groundplane"/>
 
-    <geom name="terrain"
-          pos="1.0 0 0"
-          type="hfield"
-          hfield="hf133"
-          material="terrain_mat"
-          condim="3"/>
+
+    <geom name="terrain" pos="2.5 0 0" type="hfield" hfield="hf133" material="terrain_mat" condim="3"/>
+
 
     <body name="goal" mocap="true" pos=".3 0 0.26">
       <geom size="0.12" contype="0" conaffinity="0" rgba="0 1 0 .5" group="2"/>
