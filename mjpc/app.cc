@@ -228,6 +228,10 @@ void PhysicsLoop(mj::Simulate& sim) {
       if (dnew) {
         sim.agent->Initialize(mnew);
         sim.agent->plot_enabled = absl::GetFlag(FLAGS_show_plot);
+        // Disable plots by default for Quadruped Pose task
+        if (sim.agent->ActiveTask()->Name() == std::string("Quadruped Pose")) {
+          sim.agent->plot_enabled = false;
+        }
         sim.agent->plan_enabled = absl::GetFlag(FLAGS_planner_enabled);
         sim.agent->Allocate();
 
@@ -436,6 +440,11 @@ MjpcApp::MjpcApp(std::vector<std::shared_ptr<mjpc::Task>> tasks, int task_id) {
   sim->agent->Allocate();
   sim->agent->Reset();
   sim->agent->PlotInitialize();
+
+  // Disable plots by default for Quadruped Pose task
+  if (sim->agent->ActiveTask()->Name() == std::string("Quadruped Pose")) {
+    sim->agent->plot_enabled = false;
+  }
 
   sim->agent->plan_enabled = absl::GetFlag(FLAGS_planner_enabled);
 

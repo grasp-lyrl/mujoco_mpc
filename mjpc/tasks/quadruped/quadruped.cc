@@ -844,7 +844,9 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   if (pose_select_param_id_ >= 0) {
     pose_index = ReinterpretAsInt(parameters_[pose_select_param_id_]);
   }
-  if (pose_index > 0 && model->nkey >= pose_index + 1) {
+  // Position-only targets are indices 1..4. Full pose targets are indices >=5.
+  bool pose_target_selected = pose_index >= 5;
+  if (pose_target_selected && model->nkey >= pose_index + 1) {
     // layout: 3 pos + 9 rotmat difference
     const double* goal_position = model->key_mpos + 3 * pose_index;
     const double* goal_quat = model->key_mquat + 4 * pose_index;
@@ -865,7 +867,7 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
     mju_sub(residual + counter, body_rotmat, goal_rotmat, 9);
     counter += 9;
   } else {
-    // no pose selected: fill Pose term with zeros to keep dimensions consistent
+    // no full pose selected: fill Pose term with zeros to keep dimensions consistent
     mju_zero(residual + counter, 12);
     counter += 12;
   }
@@ -937,7 +939,7 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
     target[2] = goal_pos[2];
   }
   // If pose is selected, zero out Position residual (replaced by Pose above)
-  if (pose_index > 0) {
+  if (pose_target_selected) {
     residual[counter++] = 0;
     residual[counter++] = 0;
     residual[counter++] = 0;
@@ -1241,6 +1243,8 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
       double* goal = data->mocap_pos + 3*residual_.goal_mocap_id_;
       mju_copy3(goal, model->key_mpos + 3 * pose_index);
       double* goal_quat = data->mocap_quat + 4*residual_.goal_mocap_id_;
+      // For indices 1..4 (Position 1..4), we still set the mocap quaternion so it's visible,
+      // but the Pose residual is disabled in Residual() for these indices.
       mju_copy4(goal_quat, model->key_mquat + 4 * pose_index);
     }
   }

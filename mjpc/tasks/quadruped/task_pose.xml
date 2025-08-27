@@ -2,8 +2,6 @@
   <include file="../common.xml"/>
   <size memory="16M" nconmax="256"/>
 
-  <statistic center="0 0 0.1" extent="0.8"/>
-
   <custom>
     <!-- agent -->
     <text name="task_transition" data="Quadruped|Biped|Walk|Scramble|Flip"/>
@@ -33,7 +31,7 @@
     <numeric name="residual_Arm posture" data=".03 0 1"/>
 
     <!-- Pose selection tab -->
-    <text name="residual_list_Pose" data="None|Pose 1|Pose 2|Pose 3|Pose 4|Pose 5|Pose 6"/>
+    <text name="residual_list_Pose" data="None|Position 1|Position 2|Position 3|Position 4|Pose 1|Pose 2|Pose 3|Pose 4|Pose 5|Pose 6"/>
     <numeric name="residual_select_Pose" data="0"/>
 
     <!-- estimator -->
@@ -66,10 +64,12 @@
   
   </asset>
 
+
+  <statistic center="2.0 0.0 0.0" extent="3.5"/>
   <visual>
     <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
     <rgba haze="0.15 0.25 0.35 1"/>
-    <global azimuth="-130" elevation="-20"/>
+    <global azimuth="-45" elevation="-35"/>
   </visual>
 
   <worldbody>
@@ -88,10 +88,17 @@
   <!-- go2 model -->
   <include file="go2.xml" />
 
-  <!-- keyframes: default 'home' plus 5 pose keys. Initialize poses equal to 'home' to start. -->
+  <!-- keyframes: default 'home' plus 4 position keys and 6 pose keys. -->
   <keyframe>
     <key name="home" qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"
       ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>
+    <!-- Position-only targets (no pose objective) -->
+    <key name="pos1" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
+    <key name="pos2" mpos="1.0 0 0.26" mquat="1 0 0 0"/>
+    <key name="pos3" mpos="1.8 0 0.46" mquat="1 0 0 0"/>
+    <!-- <key name="pos3" mpos="1.8 0 0.26" mquat="1 0 0 0"/> -->
+    <key name="pos4" mpos="2.2 0 0.48" mquat="1 0 0 0"/>
+    <!-- Full pose targets -->
     <key name="pose1" mpos="0.3 0 0.26" mquat="1 0 0 0"/>
     <key name="pose2" mpos="0.4 0 0.26" mquat="1 0 0 0"/>
     <key name="pose3" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
