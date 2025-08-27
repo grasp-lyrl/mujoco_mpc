@@ -62,7 +62,7 @@
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.04"/>
     <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="12 12" reflectance="0"/>
     
-    <hfield name="hf133" file="../assets/gradient_68x28.png" size="1.7 0.7 1 2"/>
+    <hfield name="hf133" file="../assets/white_68x28.png" size="1.7 0.7 1 2"/>
   
   </asset>
 
