@@ -1293,15 +1293,16 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   // gait selection: Stand|Walk|Trot|Canter|Gallop  -> Trot = 2
   if (residual_.gait_param_id_ >= 0) {
     parameters[residual_.gait_param_id_] = ReinterpretAsDouble(ResidualFn::kGaitTrot);
+    residual_.current_gait_ = ReinterpretAsDouble(ResidualFn::kGaitTrot);
   }
   // gait switch: Manual|Automatic -> Manual = 0
   if (residual_.gait_switch_param_id_ >= 0) {
     parameters[residual_.gait_switch_param_id_] = ReinterpretAsDouble(0);
   }
   // cadence, amplitude, duty ratio
-  if (residual_.cadence_param_id_ >= 0) parameters[residual_.cadence_param_id_] = 0.95;   // Trot cadence
+  if (residual_.cadence_param_id_ >= 0) parameters[residual_.cadence_param_id_] = 1.0;    // Trot cadence
   if (residual_.amplitude_param_id_ >= 0) parameters[residual_.amplitude_param_id_] = 0.03; // Trot amplitude
-  if (residual_.duty_param_id_ >= 0) parameters[residual_.duty_param_id_] = 0.75;          // Trot duty ratio
+  if (residual_.duty_param_id_ >= 0) parameters[residual_.duty_param_id_] = 0.65;          // Trot duty ratio
   // walk speed/turn, heading, arm posture
   {
     int idx;
