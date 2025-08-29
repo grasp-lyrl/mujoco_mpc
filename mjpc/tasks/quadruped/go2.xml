@@ -3,8 +3,8 @@
 
   <!-- <option cone="pyramidal" impratio="10" integrator="implicitfast" timestep="0.0015" iterations="10" tolerance="5e-6"/> -->
   <!-- <option cone="elliptic" impratio="100" integrator="implicitfast" timestep="0.001" iterations="20" tolerance="1e-6"/> -->
-  <!-- <option cone="pyramidal" impratio="80" integrator="implicitfast" timestep="0.0005"/> -->\
-  <option cone="pyramidal" impratio="80" integrator="implicitfast" timestep="0.001"/>
+  <!-- <option cone="pyramidal" impratio="80" integrator="implicitfast" timestep="0.0005"/> -->
+  <option cone="elliptic" impratio="100" integrator="implicitfast" timestep="0.0001"/>
   
   <default>
     <default class="go2">

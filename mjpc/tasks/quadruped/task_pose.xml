@@ -72,8 +72,8 @@
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
 
-    <geom name="floor"   pos="-3.0 0 -0.01" size="4 4 0.05" type="plane" material="groundplane"/>
-    <geom name="terrain" pos="2.5 0 -0.01"   type="hfield" hfield="hf133" material="terrain_mat" condim="3"/>
+    <geom name="floor"   pos="-3.0 0 0.01" size="4 4 0.05" type="plane" material="groundplane" condim="3"/>
+    <geom name="terrain" pos="2.5 0 0.0"   type="hfield" hfield="hf133" material="terrain_mat" condim="3"/>
 
     <!-- <geom name="pos4_rect" type="box" pos="2.2 0 0.0" size="0.4 0.4 0.1" rgba="0 0 1 1"/> -->
 
@@ -92,7 +92,7 @@
     <!-- Position-only targets (no pose objective) -->
     <key name="pos1" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
     <key name="pos2" mpos="1.0 0 0.26" mquat="1 0 0 0"/>
-    <key name="pos3" mpos="1.5 0 0.40" mquat="1 0 0 0"/>
+    <key name="pos3" mpos="1.8 0 0.26" mquat="1 0 0 0"/>
     <key name="pos4" mpos="2.2 0 0.48" mquat="1 0 0 0"/>
     <!-- Full pose targets -->
     <key name="pose1" mpos="0.3 0 0.26" mquat="1 0 0 0"/>
