@@ -91,8 +91,8 @@
       ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>
     <!-- Position-only targets (no pose objective) -->
     <key name="pos1" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
-    <key name="pos2" mpos="1.0 0 0.26" mquat="1 0 0 0"/>
-    <key name="pos3" mpos="1.8 0 0.26" mquat="1 0 0 0"/>
+    <key name="pos2" mpos="1.3 0 0.26" mquat="1 0 0 0"/>
+    <key name="pos3" mpos="1.7 0 0.26" mquat="1 0 0 0"/>
     <key name="pos4" mpos="2.2 0 0.48" mquat="1 0 0 0"/>
     <!-- Full pose targets -->
     <key name="pose1" mpos="0.3 0 0.26" mquat="1 0 0 0"/>
