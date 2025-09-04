@@ -45,22 +45,23 @@
     <numeric name="derivative_skip" data="2"/>
   </custom>
 
-  <!-- Pose residual term must be declared before non-user sensors appear in go2.xml -->
+
   <sensor>
-    <!-- 12-dim residual: 3 (pos) + 9 (rotmat difference). Weight defaults to 0.2 with L2 norm (2) and epsilon 0.1 -->
     <user name="Pose" dim="12" user="2 0.2 0 2 0.1"/>
   </sensor>
+
 
   <asset>
     <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.26 0.36 0.48" rgb2="0.16 0.26 0.38" markrgb="0.70 0.76 0.82" width="300" height="300"/>
-    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge" rgb1="0.78 0.82 0.88" rgb2="0.86 0.90 0.94" markrgb="0.62 0.68 0.74" width="300" height="300"/>
+    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge" rgb1="0.68 0.80 1.0" rgb2="0.78 0.90 1.0" markrgb="0.0 0.0 1.0" width="300" height="300"/>
 
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.04"/>
-    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="12 12" reflectance="0"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="30 30" reflectance="0.05" rgba="0.85 0.92 1.00 1"/>
 
     <hfield name="hf133" file="../assets/white_31x19.png" size="1.5 0.9 1 2"/>
   </asset>
+
 
   <statistic center="2.0 0.0 0.0" extent="3.5"/>
   <visual>
@@ -69,32 +70,32 @@
     <global azimuth="-45" elevation="-35"/>
   </visual>
 
+
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
 
-    <geom name="floor"   pos="-3.0 0 0.01" size="4 4 0.05" type="plane" material="groundplane" condim="3"/>
+    <geom name="floor"   pos="-3.0 0 0.0" size="4 4 0.05" type="plane" material="groundplane" condim="3"/>
     <geom name="terrain" pos="2.5 0 0.0"   type="hfield" hfield="hf133" material="terrain_mat" condim="3"/>
-
-    <!-- <geom name="pos4_rect" type="box" pos="2.2 0 0.0" size="0.4 0.4 0.1" rgba="0 0 1 1"/> -->
 
     <body name="goal" mocap="true" pos=".3 0 0.26">
       <geom size="0.05" contype="0" conaffinity="0" rgba="0.678 0.847 0.902 0.7" group="2"/>
     </body>
   </worldbody>
 
+
   <!-- go2 model -->
   <include file="go2.xml" />
 
-  <!-- keyframes: default 'home' plus 4 position keys and 6 pose keys. -->
+
   <keyframe>
     <key name="home" qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"
       ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>
-    <!-- Position-only targets (no pose objective) -->
+
     <key name="pos1" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
     <key name="pos2" mpos="1.3 0 0.26" mquat="1 0 0 0"/>
     <key name="pos3" mpos="1.7 0 0.26" mquat="1 0 0 0"/>
     <key name="pos4" mpos="2.2 0 0.48" mquat="1 0 0 0"/>
-    <!-- Full pose targets -->
+
     <key name="pose1" mpos="0.3 0 0.26" mquat="1 0 0 0"/>
     <key name="pose2" mpos="2.3 0 0.26" mquat="1 0 0 0"/>
     <key name="pose3" mpos="0.5 0 0.26" mquat="1 0 0 0"/>
