@@ -26,9 +26,6 @@ services:
       XDG_RUNTIME_DIR: /tmp/runtime-${USER}
       HOME: /home/dimos
       MUJOCO_GL: glfw
-      # Use NVIDIA GPU for rendering
-      # __NV_PRIME_RENDER_OFFLOAD: 1
-      # __GLX_VENDOR_LIBRARY_NAME: nvidia
 
     security_opt:
       - seccomp=unconfined
