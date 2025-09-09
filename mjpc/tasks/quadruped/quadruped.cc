@@ -1178,6 +1178,14 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
    counter +=3;
 
 
+  // ---------- FootCost (placeholder to match user sensor dims) ----------
+  // The GO2 model defines a trailing user sensor "FootCost" with dim=4.
+  // QuadrupedPose does not compute it explicitly; append zeros to keep
+  // total residual length equal to the sum of user sensor dimensions.
+  mju_zero(residual + counter, 4);
+  counter += 4;
+
+
   // sensor dim sanity check
    CheckSensorDim(model, counter);
  }
