@@ -16,6 +16,10 @@
 #define MJPC_TASKS_QUADRUPED_QUADRUPED_H_
 
 #include <string>
+#include <vector>
+#include <atomic>
+#include <cstddef>
+#include <cstring>
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
 
@@ -35,6 +39,16 @@ class QuadrupedFlat : public Task {
 
    private:
     friend class QuadrupedFlat;
+    // CPU-side cost map provided by an external owner
+    struct CostMap {
+      double origin_x = 0.0;     // world meters, top-left x
+      double origin_y = 0.0;     // world meters, top-left y
+      double resolution = 0.05;  // meters per cell
+      int width = 0;             // columns
+      int height = 0;            // rows
+      std::vector<float> data;   // row-major height x width
+      uint64_t version = 0;
+    } cost_map_;
     //  ============  enums  ============
     // modes
     enum A1Mode {
@@ -248,6 +262,29 @@ class QuadrupedFlat : public Task {
   void ModifyScene(const mjModel* model, const mjData* data,
                    mjvScene* scene) const override;
 
+  // ------- Public setters for external cost map (no transport inside MJPC) -------
+  void SetFootCostMapMetadata(double origin_x, double origin_y,
+                              double resolution_m_per_cell,
+                              int width, int height) {
+    residual_.cost_map_.origin_x = origin_x;
+    residual_.cost_map_.origin_y = origin_y;
+    residual_.cost_map_.resolution = resolution_m_per_cell;
+    residual_.cost_map_.width = width;
+    residual_.cost_map_.height = height;
+    residual_.cost_map_.data.resize(static_cast<size_t>(width) * height);
+  }
+
+  void SetFootCostMapData(const float* buffer, size_t num_values) {
+    if (!buffer) return;
+    size_t expected = static_cast<size_t>(residual_.cost_map_.width) *
+                      static_cast<size_t>(residual_.cost_map_.height);
+    if (num_values != expected) return;
+    std::memcpy(residual_.cost_map_.data.data(), buffer,
+                expected * sizeof(float));
+  }
+
+  void CommitFootCostMap(uint64_t version) { residual_.cost_map_.version = version; }
+
  protected:
   std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const override {
     return std::make_unique<ResidualFn>(residual_);
@@ -323,6 +360,16 @@ class QuadrupedPose : public Task {
 
    private:
     friend class QuadrupedPose;
+    // CPU-side cost map provided by an external owner
+    struct CostMap {
+      double origin_x = 0.0;
+      double origin_y = 0.0;
+      double resolution = 0.05;
+      int width = 0;
+      int height = 0;
+      std::vector<float> data;
+      uint64_t version = 0;
+    } cost_map_;
     //  ============  enums  ============
     enum A1Mode {
       kModeQuadruped = 0,
@@ -526,6 +573,29 @@ class QuadrupedPose : public Task {
   // draw task-related geometry in the scene
   void ModifyScene(const mjModel* model, const mjData* data,
                    mjvScene* scene) const override;
+
+  // ------- Public setters for external cost map (no transport inside MJPC) -------
+  void SetFootCostMapMetadata(double origin_x, double origin_y,
+                              double resolution_m_per_cell,
+                              int width, int height) {
+    residual_.cost_map_.origin_x = origin_x;
+    residual_.cost_map_.origin_y = origin_y;
+    residual_.cost_map_.resolution = resolution_m_per_cell;
+    residual_.cost_map_.width = width;
+    residual_.cost_map_.height = height;
+    residual_.cost_map_.data.resize(static_cast<size_t>(width) * height);
+  }
+
+  void SetFootCostMapData(const float* buffer, size_t num_values) {
+    if (!buffer) return;
+    size_t expected = static_cast<size_t>(residual_.cost_map_.width) *
+                      static_cast<size_t>(residual_.cost_map_.height);
+    if (num_values != expected) return;
+    std::memcpy(residual_.cost_map_.data.data(), buffer,
+                expected * sizeof(float));
+  }
+
+  void CommitFootCostMap(uint64_t version) { residual_.cost_map_.version = version; }
 
  protected:
   std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const override {
