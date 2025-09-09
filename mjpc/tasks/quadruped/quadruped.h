@@ -216,6 +216,9 @@ class QuadrupedFlat : public Task {
     // high-res costmap references (present only in mjTwin XML)
     int cost_hfield_id_       = -1;
     int cost_geom_id_         = -1;
+    // terrain references for smooth stance gating
+    int terrain_hfield_id_    = -1;
+    int terrain_geom_id_      = -1;
 
     // derived kinematic quantities describing flip trajectory
     double gravity_           = 0;
@@ -232,6 +235,7 @@ class QuadrupedFlat : public Task {
     double jump_rot_vel_      = 0;
     double jump_rot_acc_      = 0;
     double land_rot_acc_      = 0;
+
   };
 
   QuadrupedFlat() : residual_(this) {}
@@ -374,7 +378,7 @@ class QuadrupedPose : public Task {
     // unitless    Hz       meter      unitless  unitless  unitless
       {1,          1,       0,         0,        1,        1},      // stand
       {0.75,       1,       0.03,      0,        1,        1},      // walk
-      {0.8,        0.8,     0.03,      0.2,      1,        1},      // trot
+      {0.45,       2,       0.03,      0.2,      1,        1},      // trot (consistent with QuadrupedFlat)
       {0.4,        4,       0.05,      0.03,     0.5,      0.2},    // canter
       {0.3,        3.5,     0.10,      0.03,     0.2,      0.1}     // gallop
     };

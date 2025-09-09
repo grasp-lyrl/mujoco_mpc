@@ -234,18 +234,47 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       double value = 0.0;
 
       if (cost_geom_id_ >= 0 && cost_hfield_id_ >= 0) {
-        // only when in contact
-        double touch = 0.0;
-        switch (foot) {
-          case kFootFL: touch = *SensorByName(model, data, "FL_touch"); break;
-          case kFootHL: touch = *SensorByName(model, data, "HL_touch"); break;
-          case kFootFR: touch = *SensorByName(model, data, "FR_touch"); break;
-          case kFootHR: touch = *SensorByName(model, data, "HR_touch"); break;
-          default: touch = 0.0; break;
+        // continuous stance gating via height comparison to terrain instead of binary touch
+        const double* foot_p = data->geom_xpos + 3 * foot_geom_id_[foot];
+        // sample terrain height directly from hf133 under the foot (no raycasts)
+        double ground_h = foot_p[2];
+        if (terrain_geom_id_ >= 0 && terrain_hfield_id_ >= 0) {
+          const double* tpos = model->geom_pos + 3 * terrain_geom_id_;
+          double tx = foot_p[0] - tpos[0];
+          double ty = foot_p[1] - tpos[1];
+          const double* thf = model->hfield_size + 4 * terrain_hfield_id_;
+          double sx_t = thf[0], sy_t = thf[1];
+          if (mju_abs(tx) <= sx_t && mju_abs(ty) <= sy_t) {
+            int nrow_t = model->hfield_nrow[terrain_hfield_id_];
+            int ncol_t = model->hfield_ncol[terrain_hfield_id_];
+            int adr_t = model->hfield_adr[terrain_hfield_id_];
+            double u_t = (tx / (2.0 * sx_t)) + 0.5;
+            double v_t = (ty / (2.0 * sy_t)) + 0.5;
+            double xt = mju_clip(u_t * (ncol_t - 1), 0.0, (double)(ncol_t - 1));
+            double yt = mju_clip(v_t * (nrow_t - 1), 0.0, (double)(nrow_t - 1));
+            int x0t = (int) mju_floor(xt);
+            int y0t = (int) mju_floor(yt);
+            int x1t = mju_min(x0t + 1, ncol_t - 1);
+            int y1t = mju_min(y0t + 1, nrow_t - 1);
+            double txt = xt - x0t;
+            double tyt = yt - y0t;
+            const float* data_t = model->hfield_data + adr_t;
+            double w00 = data_t[y0t * ncol_t + x0t];
+            double w10 = data_t[y0t * ncol_t + x1t];
+            double w01 = data_t[y1t * ncol_t + x0t];
+            double w11 = data_t[y1t * ncol_t + x1t];
+            double w0 = (1.0 - txt) * w00 + txt * w10;
+            double w1 = (1.0 - txt) * w01 + txt * w11;
+            // convert normalized hfield value to world height using size[2]
+            ground_h = tpos[2] + thf[2] * ((1.0 - tyt) * w0 + tyt * w1);
+          }
         }
+        // smooth stance weight based on foot height over terrain
+        double dz = mju_max(0.0, foot_p[2] - ground_h);
+        double zscale = 2.0 * ResidualFn::kFootRadius;
+        double stance_w = mju_clip(1.0 - dz / zscale, 0.0, 1.0);
 
-        if (touch > 0) {
-          const double* foot_p = data->geom_xpos + 3 * foot_geom_id_[foot];
+        if (stance_w > 0.0) {
           const double* gpos = model->geom_pos + 3 * cost_geom_id_;
           double lx = foot_p[0] - gpos[0];
           double ly = foot_p[1] - gpos[1];
@@ -258,9 +287,23 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
             int adr = model->hfield_adr[cost_hfield_id_];
             double u = (lx / (2.0 * sx)) + 0.5;  // [0,1]
             double v = (ly / (2.0 * sy)) + 0.5;  // [0,1]
-            int ci = mju_clip((int) mju_round(u * (ncol - 1)), 0, ncol - 1);
-            int ri = mju_clip((int) mju_round(v * (nrow - 1)), 0, nrow - 1);
-            value = model->hfield_data[adr + ri * ncol + ci];
+            // bilinear interpolation for smoothness
+            double x = mju_clip(u * (ncol - 1), 0.0, (double)(ncol - 1));
+            double y = mju_clip(v * (nrow - 1), 0.0, (double)(nrow - 1));
+            int x0 = (int) mju_floor(x);
+            int y0 = (int) mju_floor(y);
+            int x1 = mju_min(x0 + 1, ncol - 1);
+            int y1 = mju_min(y0 + 1, nrow - 1);
+            double tx = x - x0;
+            double ty = y - y0;
+            const float* data_hf = model->hfield_data + adr;
+            double v00 = data_hf[y0 * ncol + x0];
+            double v10 = data_hf[y0 * ncol + x1];
+            double v01 = data_hf[y1 * ncol + x0];
+            double v11 = data_hf[y1 * ncol + x1];
+            double v0 = (1.0 - tx) * v00 + tx * v10;
+            double v1 = (1.0 - tx) * v01 + tx * v11;
+            value = ((1.0 - ty) * v0 + ty * v1) * stance_w;
           }
         }
       }
@@ -610,6 +653,19 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   // optional: cache ids for costmap assets if present
   residual_.cost_hfield_id_ = mj_name2id(model, mjOBJ_HFIELD, "costmap");
   residual_.cost_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain_cost");
+  // also cache terrain ids for stance gating via ground query
+  residual_.terrain_hfield_id_ = mj_name2id(model, mjOBJ_HFIELD, "hf133");
+  residual_.terrain_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain");
+
+  // Ensure costmap starts at zeros regardless of source image
+  if (residual_.cost_hfield_id_ >= 0) {
+    int hid = residual_.cost_hfield_id_;
+    int nrow = model->hfield_nrow[hid];
+    int ncol = model->hfield_ncol[hid];
+    int adr = model->hfield_adr[hid];
+    float* data = model->hfield_data + adr;
+    for (int i = 0; i < nrow * ncol; ++i) data[i] = 0.0f;
+  }
   int shoulder_index = 0;
   for (const char* shouldername : {"FL_hip", "HL_hip", "FR_hip", "HR_hip"}) {
     int foot_id = mj_name2id(model, mjOBJ_BODY, shouldername);

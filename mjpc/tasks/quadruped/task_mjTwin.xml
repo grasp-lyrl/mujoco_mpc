@@ -16,13 +16,13 @@
     <numeric name="gradient_spline_points" data="5"/>
 
     <!-- residual -->
-    <numeric name="residual_select_Gait" data="0"/>
+    <numeric name="residual_select_Gait" data="2"/>
     <text name="residual_list_Gait" data="Stand|Walk|Trot|Canter|Gallop"/>
     <numeric name="residual_select_Gait switch" data="1"/>
     <text name="residual_list_Gait switch" data="Manual|Automatic"/>
-    <numeric name="residual_Cadence" data="1.0 0 4"/>
-    <numeric name="residual_Amplitude" data=".06 0 0.2"/>
-    <numeric name="residual_Duty ratio" data="0.65 0 1"/>
+    <numeric name="residual_Cadence" data="2.0 0 4"/>
+    <numeric name="residual_Amplitude" data="0.03 0 0.2"/>
+    <numeric name="residual_Duty ratio" data="0.45 0 1"/>
     <numeric name="residual_Walk speed" data="0 0 4"/>
     <numeric name="residual_Walk turn" data="0 -2 2"/>
     <numeric name="residual_select_Flip dir" data="0"/>
@@ -53,7 +53,6 @@
     <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="24 24" reflectance="0.05" rgba="0.85 0.92 1.00 1"/>
 
     <hfield name="hf133" file="../assets/white_25x25.png" size="3 3 1 2"/>
-    <!-- High-resolution cost hfield: initialized to zeros, used only for cost -->
     <hfield name="costmap" file="../assets/white_151x151.png" size="3 3 1 2"/>
 
   </asset>
