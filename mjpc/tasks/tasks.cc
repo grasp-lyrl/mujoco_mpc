@@ -66,6 +66,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<ShadowReorient>(),
       std::make_shared<Quadrotor>(),
              std::make_shared<QuadrupedFlat>(),
+      std::make_shared<MjTwin>(),
        std::make_shared<QuadrupedPose>(),
        std::make_shared<QuadrupedHill>(),
        std::make_shared<Swimmer>(),

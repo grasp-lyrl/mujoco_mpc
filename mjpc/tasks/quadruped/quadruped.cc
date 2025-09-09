@@ -227,6 +227,48 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
   mju_copy3(residual + counter, SensorByName(model, data, "torso_angmom"));
   counter +=3;
 
+  // ---------- FootCost (optional, mjTwin only) ----------
+  if (foot_cost_id_ >= 0) {
+    // sample raw hfield values from costmap (no raycasts)
+    for (A1Foot foot : kFootAll) {
+      double value = 0.0;
+
+      if (cost_geom_id_ >= 0 && cost_hfield_id_ >= 0) {
+        // only when in contact
+        double touch = 0.0;
+        switch (foot) {
+          case kFootFL: touch = *SensorByName(model, data, "FL_touch"); break;
+          case kFootHL: touch = *SensorByName(model, data, "HL_touch"); break;
+          case kFootFR: touch = *SensorByName(model, data, "FR_touch"); break;
+          case kFootHR: touch = *SensorByName(model, data, "HR_touch"); break;
+          default: touch = 0.0; break;
+        }
+
+        if (touch > 0) {
+          const double* foot_p = data->geom_xpos + 3 * foot_geom_id_[foot];
+          const double* gpos = model->geom_pos + 3 * cost_geom_id_;
+          double lx = foot_p[0] - gpos[0];
+          double ly = foot_p[1] - gpos[1];
+          // assume no rotation on cost geom
+          const double* hfsize = model->hfield_size + 4 * cost_hfield_id_;
+          double sx = hfsize[0], sy = hfsize[1];
+          if (mju_abs(lx) <= sx && mju_abs(ly) <= sy) {
+            int nrow = model->hfield_nrow[cost_hfield_id_];
+            int ncol = model->hfield_ncol[cost_hfield_id_];
+            int adr = model->hfield_adr[cost_hfield_id_];
+            double u = (lx / (2.0 * sx)) + 0.5;  // [0,1]
+            double v = (ly / (2.0 * sy)) + 0.5;  // [0,1]
+            int ci = mju_clip((int) mju_round(u * (ncol - 1)), 0, ncol - 1);
+            int ri = mju_clip((int) mju_round(v * (nrow - 1)), 0, nrow - 1);
+            value = model->hfield_data[adr + ri * ncol + ci];
+          }
+        }
+      }
+
+      residual[counter++] = value;
+    }
+  }
+
 
   // sensor dim sanity check
   CheckSensorDim(model, counter);
@@ -539,6 +581,9 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   residual_.upright_cost_id_ = CostTermByName(model, "Upright");
   residual_.height_cost_id_ = CostTermByName(model, "Height");
 
+  // optional high-res FootCost term (only present in mjTwin)
+  residual_.foot_cost_id_ = CostTermByName(model, "FootCost");
+
   // ----------  model identifiers  ----------
   residual_.torso_body_id_ = mj_name2id(model, mjOBJ_XBODY, "trunk");
   if (residual_.torso_body_id_ < 0) mju_error("body 'trunk' not found");
@@ -562,6 +607,9 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   }
 
   // shoulder body ids
+  // optional: cache ids for costmap assets if present
+  residual_.cost_hfield_id_ = mj_name2id(model, mjOBJ_HFIELD, "costmap");
+  residual_.cost_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain_cost");
   int shoulder_index = 0;
   for (const char* shouldername : {"FL_hip", "HL_hip", "FR_hip", "HR_hip"}) {
     int foot_id = mj_name2id(model, mjOBJ_BODY, shouldername);
@@ -1586,5 +1634,10 @@ void QuadrupedPose::ResidualFn::FlipQuat(double quat[4], double time) const {
   mju_axisAngle2Quat(quat, axis, angle);
   mju_mulQuat(quat, orientation_, quat);
 }
+
+std::string MjTwin::XmlPath() const {
+  return GetModelPath("quadruped/task_mjTwin.xml");
+}
+std::string MjTwin::Name() const { return "mjTwin"; }
 
 }  // namespace mjpc

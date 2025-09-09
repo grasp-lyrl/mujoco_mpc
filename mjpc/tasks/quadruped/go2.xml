@@ -276,6 +276,8 @@
     <user name="Posture" dim="12" user="0 0.02 0.0 0.1"/>
     <user name="Orientation" dim="2" user="0 0 0 .03"/>
     <user name="Angmom" dim="3" user="0 0 0 .03"/>
+    <!-- Additional high-res foot placement cost (must remain last user sensor) -->
+    <user name="FootCost" dim="4" user="2 0 0 1 0.1"/>
 
     <jointpos name="pos_FR_hip_joint" joint="FR_hip_joint"/>
     <jointpos name="pos_FR_thigh_joint" joint="FR_thigh_joint"/>

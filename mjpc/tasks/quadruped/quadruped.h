@@ -208,8 +208,14 @@ class QuadrupedFlat : public Task {
     int upright_cost_id_      = -1;
     int balance_cost_id_      = -1;
     int height_cost_id_       = -1;
+    // optional extra cost term for high-res foot cost map (mjTwin)
+    int foot_cost_id_         = -1;
     int foot_geom_id_[kNumFoot];
     int shoulder_body_id_[kNumFoot];
+
+    // high-res costmap references (present only in mjTwin XML)
+    int cost_hfield_id_       = -1;
+    int cost_geom_id_         = -1;
 
     // derived kinematic quantities describing flip trajectory
     double gravity_           = 0;
@@ -249,6 +255,11 @@ class QuadrupedFlat : public Task {
   ResidualFn residual_;
 };
 
+class MjTwin : public QuadrupedFlat {
+ public:
+  std::string Name() const override;
+  std::string XmlPath() const override;
+};
 
 class QuadrupedHill : public Task {
  public:
