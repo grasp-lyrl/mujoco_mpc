@@ -300,6 +300,7 @@ class MjTwin : public QuadrupedFlat {
  public:
   std::string Name() const override;
   std::string XmlPath() const override;
+  void ResetLocked(const mjModel* model) override;
 };
 
 class QuadrupedHill : public Task {

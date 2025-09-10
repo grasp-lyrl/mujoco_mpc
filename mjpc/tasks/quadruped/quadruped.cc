@@ -613,6 +613,12 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   // optional high-res FootCost term (only present in mjTwin)
   residual_.foot_cost_id_ = CostTermByName(model, "FootCost");
 
+  // Initialize current gait from parameter selection to avoid an immediate
+  // gait-change override on the first Transition call.
+  if (residual_.gait_param_id_ >= 0) {
+    residual_.current_gait_ = parameters[residual_.gait_param_id_];
+  }
+
   // ----------  model identifiers  ----------
   residual_.torso_body_id_ = mj_name2id(model, mjOBJ_XBODY, "trunk");
   if (residual_.torso_body_id_ < 0) mju_error("body 'trunk' not found");
@@ -1713,5 +1719,59 @@ std::string MjTwin::XmlPath() const {
   return GetModelPath("quadruped/task_mjTwin.xml");
 }
 std::string MjTwin::Name() const { return "mjTwin"; }
+
+void MjTwin::ResetLocked(const mjModel* model) {
+  // Perform the same identifier setup as QuadrupedFlat
+  QuadrupedFlat::ResetLocked(model);
+
+  // Mirror QuadrupedPose defaults for weights and parameters
+  // cost terms by name used on demand
+  int position_cost_id = CostTermByName(model, "Position");
+  int effort_cost_id = CostTermByName(model, "Effort");
+  int posture_cost_id = CostTermByName(model, "Posture");
+  int orientation_cost_id = CostTermByName(model, "Orientation");
+  int angmom_cost_id = CostTermByName(model, "Angmom");
+  int upright_cost_id = CostTermByName(model, "Upright");
+  int height_cost_id = CostTermByName(model, "Height");
+  int balance_cost_id = CostTermByName(model, "Balance");
+
+  // Note: MjTwin has no Pose residual; align other weights
+  if (upright_cost_id >= 0) weight[upright_cost_id] = 1.0;   // Upright
+  if (height_cost_id >= 0) weight[height_cost_id] = 1.0;     // Height
+  if (position_cost_id >= 0) weight[position_cost_id] = 0.2; // Position
+  if (balance_cost_id >= 0) weight[balance_cost_id] = 0.2;   // Balance
+  if (effort_cost_id >= 0) weight[effort_cost_id] = 0.08;               // Effort
+  if (posture_cost_id >= 0) weight[posture_cost_id] = 0.02;             // Posture
+  if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;      // Orientation
+  if (angmom_cost_id >= 0) weight[angmom_cost_id] = 0.0;                 // Angmom
+
+  // Parameters: match QuadrupedPose defaults
+  int gait_id = ParameterIndex(model, "select_Gait");
+  int gait_switch_id = ParameterIndex(model, "select_Gait switch");
+  int cadence_id = ParameterIndex(model, "Cadence");
+  int amplitude_id = ParameterIndex(model, "Amplitude");
+  int duty_id = ParameterIndex(model, "Duty ratio");
+  int arm_posture_id = ParameterIndex(model, "Arm posture");
+
+  if (gait_id >= 0) {
+    // Trot index is 2: Stand|Walk|Trot|Canter|Gallop
+    parameters[gait_id] = ReinterpretAsDouble(2);
+    // current_gait_ is internal to ResidualFn; Transition will sync it on first call
+  }
+  if (gait_switch_id >= 0) {
+    parameters[gait_switch_id] = ReinterpretAsDouble(0);  // Manual
+  }
+  if (cadence_id >= 0) parameters[cadence_id] = 0.9;      // Trot cadence
+  if (amplitude_id >= 0) parameters[amplitude_id] = 0.03; // Trot amplitude
+  if (duty_id >= 0) parameters[duty_id] = 0.755;          // Trot duty ratio
+
+  {
+    int idx;
+    idx = ParameterIndex(model, "Walk speed"); if (idx >= 0) parameters[idx] = 0.0;
+    idx = ParameterIndex(model, "Walk turn");  if (idx >= 0) parameters[idx] = 0.0;
+    idx = ParameterIndex(model, "Heading");    if (idx >= 0) parameters[idx] = 0.0;
+  }
+  if (arm_posture_id >= 0) parameters[arm_posture_id] = 0.0;
+}
 
 }  // namespace mjpc
