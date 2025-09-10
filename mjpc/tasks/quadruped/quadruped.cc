@@ -1734,14 +1734,18 @@ void MjTwin::ResetLocked(const mjModel* model) {
   int upright_cost_id = CostTermByName(model, "Upright");
   int height_cost_id = CostTermByName(model, "Height");
   int balance_cost_id = CostTermByName(model, "Balance");
+  int gait_cost_id = CostTermByName(model, "Gait");
+  int footcost_cost_id = CostTermByName(model, "FootCost");
 
   // Note: MjTwin has no Pose residual; align other weights
-  if (upright_cost_id >= 0) weight[upright_cost_id] = 1.0;   // Upright
-  if (height_cost_id >= 0) weight[height_cost_id] = 1.0;     // Height
-  if (position_cost_id >= 0) weight[position_cost_id] = 0.2; // Position
-  if (balance_cost_id >= 0) weight[balance_cost_id] = 0.2;   // Balance
+  if (upright_cost_id >= 0) weight[upright_cost_id] = 0.195;            // Upright
+  if (height_cost_id >= 0) weight[height_cost_id] = 0.0;                // Height
+  if (position_cost_id >= 0) weight[position_cost_id] = 0.33;           // Position
+  if (gait_cost_id >= 0) weight[gait_cost_id] = 1.0;                    // Gait
+  if (balance_cost_id >= 0) weight[balance_cost_id] = 0.165;            // Balance
   if (effort_cost_id >= 0) weight[effort_cost_id] = 0.08;               // Effort
-  if (posture_cost_id >= 0) weight[posture_cost_id] = 0.02;             // Posture
+  if (posture_cost_id >= 0) weight[posture_cost_id] = 0.0605;           // Posture
+  if (footcost_cost_id >= 0) weight[footcost_cost_id] = 0.065;          // FootCost
   if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;      // Orientation
   if (angmom_cost_id >= 0) weight[angmom_cost_id] = 0.0;                 // Angmom
 
