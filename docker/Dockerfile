@@ -18,6 +18,7 @@ RUN apt-get update \
        binutils \
        build-essential \
        llvm-12 \
+       ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 ARG USER_ID=1046
