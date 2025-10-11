@@ -144,6 +144,8 @@ add_library(
   simulate.h
   task.cc
   task.h
+  interface.cc
+  interface.h
   $<TARGET_OBJECTS:mujoco::platform_ui_adapter>
 )
 set_target_properties(libmjpc PROPERTIES OUTPUT_NAME mjpc)
@@ -193,6 +195,70 @@ if(APPLE)
   target_sources(mjpc PRIVATE macos_gui.mm)
   target_link_libraries(mjpc "-framework Cocoa")
 endif()
+
+# ===== Weight Optimization helper library and CLI =====
+add_library(
+  libweightsopt STATIC
+  weight_opt/weights_opt.cc
+  weight_opt/weights_opt.h
+  weight_opt/pagmo_mjtwin_problem.cc
+  weight_opt/pagmo_mjtwin_problem.h
+)
+option(MJPC_FETCH_PAGMO "Fetch pagmo2 via FetchContent" OFF)
+if(MJPC_FETCH_PAGMO)
+  include(FetchContent)
+  message(STATUS "Fetching Eigen3 headers and pagmo2 from source...")
+  FetchContent_Declare(
+    eigen3
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG 3.4.0
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_GetProperties(eigen3)
+  if(NOT eigen3_POPULATED)
+    FetchContent_Populate(eigen3)
+  endif()
+  set(EIGEN3_INCLUDE_DIR ${eigen3_SOURCE_DIR} CACHE PATH "" FORCE)
+  FetchContent_Declare(
+    pagmo
+    GIT_REPOSITORY https://github.com/esa/pagmo2.git
+    GIT_TAG v2.19.0
+    GIT_SHALLOW TRUE
+  )
+  set(PAGMO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(PAGMO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(pagmo)
+else()
+  find_package(pagmo REQUIRED)
+endif()
+
+target_link_libraries(
+  libweightsopt
+  libmjpc
+  mujoco::mujoco
+  mujoco::platform_ui_adapter
+  Threads::Threads
+  pagmo
+)
+target_include_directories(libweightsopt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+add_executable(
+  mjpc_pagmo_mjtwin
+  weight_opt/pagmo_mjtwin_app.cc
+)
+target_link_libraries(
+  mjpc_pagmo_mjtwin
+  libweightsopt
+  absl::flags
+  absl::flags_parse
+  mujoco::platform_ui_adapter
+  pagmo
+)
+target_include_directories(mjpc_pagmo_mjtwin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_compile_options(mjpc_pagmo_mjtwin PUBLIC ${MJPC_COMPILE_OPTIONS})
+target_link_options(mjpc_pagmo_mjtwin PRIVATE ${MJPC_LINK_OPTIONS})
+target_compile_definitions(mjpc_pagmo_mjtwin PRIVATE MJSIMULATE_STATIC)
+
 
 add_library(
   libtestspeed STATIC
