@@ -332,7 +332,7 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
         if (twin->TerrainSurfaceAndNormalWorld(model, data, pl[0], pl[1], s_world, n_world)) {
           double p_minus_s[3] = {pl[0]-s_world[0], pl[1]-s_world[1], pl[2]-s_world[2]};
           double sN = mju_dot(n_world, p_minus_s, 3) - trunk_cyl_radius_clear_;
-          constexpr double margin = 0.05;
+          constexpr double margin = 0.10;
           double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
           residual[counter++] = u;
         } else {
@@ -349,7 +349,7 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
         if (twin->TerrainSurfaceAndNormalWorld(model, data, pl[0], pl[1], s_world, n_world)) {
           double p_minus_s[3] = {pl[0]-s_world[0], pl[1]-s_world[1], pl[2]-s_world[2]};
           double sN = mju_dot(n_world, p_minus_s, 3) - trunk_sph_radius_clear_;
-          constexpr double margin = 0.05;
+          constexpr double margin = 0.10;
           double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
           residual[counter++] = u;
         } else {
