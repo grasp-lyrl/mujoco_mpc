@@ -96,8 +96,8 @@
       <geom mesh="base_3" material="white" class="visual" />
       <geom mesh="base_4" material="gray"  class="visual" />
       <geom size="0.1881 0.04675 0.057" type="box" class="collision" />
-             <geom size="0.05 0.045" pos="0.285 0 0.01" type="cylinder" class="collision"/>
-       <geom size="0.047" pos="0.293 0 -0.06" class="collision"/>
+      <geom name="head_cyl" size="0.05 0.045" pos="0.285 0 0.01" type="cylinder" class="collision"/>
+      <geom name="lidar_sph" size="0.047" pos="0.293 0 -0.06" class="collision"/>
 
       <site name="imu" pos="-0.02557 0 0.04232" />
 
@@ -276,8 +276,10 @@
     <user name="Posture" dim="12" user="0 0.02 0.0 0.1"/>
     <user name="Orientation" dim="2" user="0 0 0 .03"/>
     <user name="Angmom" dim="3" user="0 0 0 .03"/>
-    <!-- Additional high-res foot placement cost (must remain last user sensor) -->
-    <user name="FootCost" dim="4" user="2 0 0 1 0.1"/>
+
+    <!-- ours -->
+    <user name="FootCost" dim="4" user="2 0 0 0.2 0.1"/>
+    <user name="NormClear" dim="6" user="2 0 0 3 0.1"/>
 
     <jointpos name="pos_FR_hip_joint" joint="FR_hip_joint"/>
     <jointpos name="pos_FR_thigh_joint" joint="FR_thigh_joint"/>

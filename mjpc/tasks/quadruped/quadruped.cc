@@ -15,6 +15,7 @@
 #include "mjpc/tasks/quadruped/quadruped.h"
 
 #include <string>
+#include <cmath>
 
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
@@ -295,6 +296,72 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       // Residual shaping: make stage cost linear in sample by emitting sqrt(sample + eps)
       constexpr double eps = 1e-12;
       residual[counter++] = mju_sqrt(mju_max(0.0, sample) + eps);
+    }
+  }
+
+  // ---------- Terrain-normal clearance cost (optional) ----------
+  if (clear_cost_id_ >= 0) {
+    // Only compute for mjTwin; otherwise emit zeros (match FootCost pattern)
+    auto twin = dynamic_cast<const MjTwin*>(task_);
+    if (twin && terrain_geom_id_ >= 0) {
+      constexpr double beta = 60.0;
+      // knees: FL, FR, HL, HR (immaterial spheres centered at calf COM)
+      for (int k = 0; k < 4; ++k) {
+        int bid = knee_body_id_clear_[k];
+        if (bid >= 0) {
+          const double* pk = data->xpos + 3 * bid;
+          double s_world[3], n_world[3];
+          if (twin->TerrainSurfaceAndNormalWorld(model, data, pk[0], pk[1], s_world, n_world)) {
+            double p_minus_s[3] = {pk[0]-s_world[0], pk[1]-s_world[1], pk[2]-s_world[2]};
+          double sN = mju_dot(n_world, p_minus_s, 3) - knee_radius_clear_;
+          constexpr double margin = 0.05;
+          double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
+            residual[counter++] = u;
+          } else {
+            residual[counter++] = 0;
+          }
+        } else {
+          residual[counter++] = 0;
+        }
+      }
+
+      // trunk cylinder geom (treated as sphere with radius=size[0] at geom center)
+      if (trunk_cyl_geom_id_clear_ >= 0) {
+        const double* pl = data->geom_xpos + 3 * trunk_cyl_geom_id_clear_;
+        double s_world[3], n_world[3];
+        if (twin->TerrainSurfaceAndNormalWorld(model, data, pl[0], pl[1], s_world, n_world)) {
+          double p_minus_s[3] = {pl[0]-s_world[0], pl[1]-s_world[1], pl[2]-s_world[2]};
+          double sN = mju_dot(n_world, p_minus_s, 3) - trunk_cyl_radius_clear_;
+          constexpr double margin = 0.05;
+          double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
+          residual[counter++] = u;
+        } else {
+          residual[counter++] = 0;
+        }
+      } else {
+        residual[counter++] = 0;
+      }
+
+      // trunk sphere geom
+      if (trunk_sph_geom_id_clear_ >= 0) {
+        const double* pl = data->geom_xpos + 3 * trunk_sph_geom_id_clear_;
+        double s_world[3], n_world[3];
+        if (twin->TerrainSurfaceAndNormalWorld(model, data, pl[0], pl[1], s_world, n_world)) {
+          double p_minus_s[3] = {pl[0]-s_world[0], pl[1]-s_world[1], pl[2]-s_world[2]};
+          double sN = mju_dot(n_world, p_minus_s, 3) - trunk_sph_radius_clear_;
+          constexpr double margin = 0.05;
+          double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
+          residual[counter++] = u;
+        } else {
+          residual[counter++] = 0;
+        }
+      } else {
+        residual[counter++] = 0;
+      }
+    } else {
+      // Non-mjTwin tasks or missing terrain: append zeros to match dims (head + 4 knees + lidar = 6)
+      mju_zero(residual + counter, 6);
+      counter += 6;
     }
   }
 
@@ -613,6 +680,14 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   // optional high-res FootCost term (only present in mjTwin)
   residual_.foot_cost_id_ = CostTermByName(model, "FootCost");
 
+  // clearance cost term id (optional; user sensor named "NormClear")
+  residual_.clear_cost_id_ = CostTermByName(model, "NormClear");
+  // default: zero weight unless explicitly enabled (avoid affecting other tasks)
+  if (residual_.clear_cost_id_ >= 0) {
+    // set weight to 0 for all tasks by default; will set non-zero in MjTwin Reset
+    weight[residual_.clear_cost_id_] = 0.0;
+  }
+
   // Initialize current gait from parameter selection to avoid an immediate
   // gait-change override on the first Transition call.
   if (residual_.gait_param_id_ >= 0) {
@@ -648,6 +723,43 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   // also cache terrain ids for stance gating via ground query
   residual_.terrain_hfield_id_ = mj_name2id(model, mjOBJ_HFIELD, "hf133");
   residual_.terrain_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain");
+
+  // clearance sites: head site and calf bodies
+  residual_.head_site_id_clear_ = mj_name2id(model, mjOBJ_SITE, "head");
+  // identify the two forward trunk collision geoms: cylinder and sphere
+  // find the named head and lidar geoms explicitly
+  residual_.trunk_cyl_geom_id_clear_ = mj_name2id(model, mjOBJ_GEOM, "head_cyl");
+  if (residual_.trunk_cyl_geom_id_clear_ >= 0) {
+    residual_.trunk_cyl_radius_clear_ = model->geom_size[3 * residual_.trunk_cyl_geom_id_clear_ + 0];
+  }
+  residual_.trunk_sph_geom_id_clear_ = mj_name2id(model, mjOBJ_GEOM, "lidar_sph");
+  if (residual_.trunk_sph_geom_id_clear_ >= 0) {
+    residual_.trunk_sph_radius_clear_ = model->geom_size[3 * residual_.trunk_sph_geom_id_clear_ + 0];
+  }
+  residual_.knee_body_id_clear_[0] = mj_name2id(model, mjOBJ_BODY, "FL_calf");
+  residual_.knee_body_id_clear_[1] = mj_name2id(model, mjOBJ_BODY, "FR_calf");
+  residual_.knee_body_id_clear_[2] = mj_name2id(model, mjOBJ_BODY, "HL_calf");
+  residual_.knee_body_id_clear_[3] = mj_name2id(model, mjOBJ_BODY, "HR_calf");
+
+  // radii for clearance cost (match visualization defaults); override head with collision sphere if found
+  residual_.knee_radius_clear_ = 0.03;
+  residual_.head_radius_clear_ = 0.03;
+  int trunk_bid = mj_name2id(model, mjOBJ_BODY, "trunk");
+  if (trunk_bid >= 0) {
+    int best = -1;
+    double bestd2 = 1e30;
+    for (int gi = 0; gi < model->ngeom; ++gi) {
+      if (model->geom_type[gi] != mjGEOM_SPHERE) continue;
+      if (model->geom_bodyid[gi] != trunk_bid) continue;
+      if (model->geom_group[gi] != 3) continue;
+      double dx = model->geom_pos[3*gi+0];
+      double dy = model->geom_pos[3*gi+1];
+      double dz = model->geom_pos[3*gi+2];
+      double d2 = dx*dx + dy*dy + dz*dz;
+      if (d2 < bestd2) { bestd2 = d2; best = gi; }
+    }
+    if (best >= 0) residual_.head_radius_clear_ = model->geom_size[3 * best + 0];
+  }
 
   // Initialize CPU-side FootCost map from XML hfield (visual) if present.
   // This provides a default cost that external frameworks can later override.
@@ -1190,6 +1302,16 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   // total residual length equal to the sum of user sensor dimensions.
   mju_zero(residual + counter, 4);
   counter += 4;
+
+  // ---------- NormClear (placeholder to match user sensor dims) ----------
+  // If the GO2 model defines "NormClear" (dim=6), append zeros here.
+  {
+    int nc_id = CostTermByName(model, "NormClear");
+    if (nc_id >= 0) {
+      mju_zero(residual + counter, 6);
+      counter += 6;
+    }
+  }
 
 
   // sensor dim sanity check
@@ -1776,6 +1898,525 @@ void MjTwin::ResetLocked(const mjModel* model) {
     idx = ParameterIndex(model, "Heading");    if (idx >= 0) parameters[idx] = 0.0;
   }
   if (arm_posture_id >= 0) parameters[arm_posture_id] = 0.0;
+
+  // If NormClear is present, enable it for MjTwin by setting a small default weight
+  {
+    int nc_id = CostTermByName(model, "NormClear");
+    if (nc_id >= 0) {
+      weight[nc_id] = 0.2;  // visible by default; tweakable
+    }
+  }
+
+  // Cache terrain geom id for later world transforms
+  cached_terrain_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain");
+
+  // Cache head site and knee bodies for visualization
+  head_site_id_vis_ = mj_name2id(model, mjOBJ_SITE, "head");
+  knee_body_id_[0] = mj_name2id(model, mjOBJ_BODY, "FL_calf");
+  knee_body_id_[1] = mj_name2id(model, mjOBJ_BODY, "FR_calf");
+  knee_body_id_[2] = mj_name2id(model, mjOBJ_BODY, "HL_calf");
+  knee_body_id_[3] = mj_name2id(model, mjOBJ_BODY, "HR_calf");
+
+
+  
+  // -------- Terrain hfield vertex normals (LOCAL hfield frame) --------
+  terrain_normals_ = {};
+  // Look up terrain hfield by name (matches QuadrupedFlat::ResetLocked)
+  int hid = mj_name2id(model, mjOBJ_HFIELD, "hf133");
+  if (hid >= 0) {
+    int nrow = model->hfield_nrow[hid];
+    int ncol = model->hfield_ncol[hid];
+    int adr  = model->hfield_adr[hid];
+    if (nrow > 0 && ncol > 0) {
+      const double* hsize = model->hfield_size + 4 * hid;  // [sx, sy, sz, ...]
+      double sx = hsize[0], sy = hsize[1], sz = hsize[2];
+      // MuJoCo mapping: indices 0..ncol-1 span 2*sx in X; 0..nrow-1 span 2*sy in Y.
+      // Compute grid spacing; derivatives are in the local geom frame (z-up).
+      double dx = (ncol > 1) ? (2.0 * sx) / (ncol - 1) : (2.0 * sx);
+      double dy = (nrow > 1) ? (2.0 * sy) / (nrow - 1) : (2.0 * sy);
+
+      terrain_normals_.width = ncol;
+      terrain_normals_.height = nrow;
+      terrain_normals_.sx = sx;
+      terrain_normals_.sy = sy;
+      terrain_normals_.sz = sz;
+      terrain_normals_.dx = dx;
+      terrain_normals_.dy = dy;
+      terrain_normals_.inv2dx = (dx > 0) ? (1.0 / (2.0 * dx)) : 0.0;
+      terrain_normals_.inv2dy = (dy > 0) ? (1.0 / (2.0 * dy)) : 0.0;
+      terrain_normals_.hfield_id = hid;
+      terrain_normals_.data.resize(static_cast<size_t>(nrow) * ncol * 3);
+
+      const float* H = model->hfield_data + adr;  // height in [0,1] typically
+      auto heightAt = [&](int r, int c) -> double {
+        r = mjMAX(0, mjMIN(r, nrow - 1));
+        c = mjMAX(0, mjMIN(c, ncol - 1));
+        return static_cast<double>(H[r * ncol + c]) * sz;
+      };
+
+      for (int r = 0; r < nrow; ++r) {
+        for (int c = 0; c < ncol; ++c) {
+          // One-sided at borders, central otherwise
+          double hx;
+          if (c == 0) {
+            double h0 = heightAt(r, 0);
+            double h1 = heightAt(r, mjMIN(1, ncol - 1));
+            hx = (h1 - h0) / dx;
+          } else if (c == ncol - 1) {
+            double hn1 = heightAt(r, ncol - 1);
+            double hn2 = heightAt(r, ncol - 2);
+            hx = (hn1 - hn2) / dx;
+          } else {
+            double hm = heightAt(r, c - 1);
+            double hp = heightAt(r, c + 1);
+            hx = (hp - hm) * terrain_normals_.inv2dx;
+          }
+
+          double hy;
+          if (r == 0) {
+            double h0 = heightAt(0, c);
+            double h1 = heightAt(mjMIN(1, nrow - 1), c);
+            hy = (h1 - h0) / dy;
+          } else if (r == nrow - 1) {
+            double hn1 = heightAt(nrow - 1, c);
+            double hn2 = heightAt(nrow - 2, c);
+            hy = (hn1 - hn2) / dy;
+          } else {
+            double hm2 = heightAt(r - 1, c);
+            double hp2 = heightAt(r + 1, c);
+            hy = (hp2 - hm2) * terrain_normals_.inv2dy;
+          }
+
+          // unnormalized normal; z-up
+          double nx = -hx;
+          double ny = -hy;
+          double nz = 1.0;
+          double invlen = 1.0 / mju_sqrt(nx * nx + ny * ny + nz * nz + 1e-30);
+          nx *= invlen; ny *= invlen; nz *= invlen;
+
+          size_t idx = static_cast<size_t>(r) * ncol + static_cast<size_t>(c);
+          float* out = &terrain_normals_.data[3 * idx];
+          out[0] = static_cast<float>(nx);
+          out[1] = static_cast<float>(ny);
+          out[2] = static_cast<float>(nz);
+        }
+      }
+    }
+  }
+}
+
+void MjTwin::ModifyScene(const mjModel* model, const mjData* data,
+                   mjvScene* scene) const {
+  // draw base visuals from QuadrupedFlat
+  QuadrupedFlat::ModifyScene(model, data, scene);
+
+  // require a terrain geom and normals
+  int terrain_gid = (cached_terrain_geom_id_ >= 0)
+                        ? cached_terrain_geom_id_
+                        : mj_name2id(model, mjOBJ_GEOM, "terrain");
+  int hid = terrain_normals_.hfield_id;
+  // Lazily initialize normals if missing
+  if (hid < 0 || terrain_normals_.data.empty()) {
+    int lazy_hid = mj_name2id(model, mjOBJ_HFIELD, "hf133");
+    if (lazy_hid >= 0) {
+      int nrow = model->hfield_nrow[lazy_hid];
+      int ncol = model->hfield_ncol[lazy_hid];
+      int adr  = model->hfield_adr[lazy_hid];
+      if (nrow > 0 && ncol > 0) {
+        const double* hsize = model->hfield_size + 4 * lazy_hid;
+        double sx = hsize[0], sy = hsize[1], sz = hsize[2];
+        double dx = (ncol > 1) ? (2.0 * sx) / (ncol - 1) : (2.0 * sx);
+        double dy = (nrow > 1) ? (2.0 * sy) / (nrow - 1) : (2.0 * sy);
+
+        // const_cast is safe here: we're filling a cache inside a const method
+        auto* self = const_cast<MjTwin*>(this);
+        self->terrain_normals_.width = ncol;
+        self->terrain_normals_.height = nrow;
+        self->terrain_normals_.sx = sx;
+        self->terrain_normals_.sy = sy;
+        self->terrain_normals_.sz = sz;
+        self->terrain_normals_.dx = dx;
+        self->terrain_normals_.dy = dy;
+        self->terrain_normals_.inv2dx = (dx > 0) ? (1.0 / (2.0 * dx)) : 0.0;
+        self->terrain_normals_.inv2dy = (dy > 0) ? (1.0 / (2.0 * dy)) : 0.0;
+        self->terrain_normals_.hfield_id = lazy_hid;
+        self->terrain_normals_.data.resize(static_cast<size_t>(nrow) * ncol * 3);
+
+        const float* H = model->hfield_data + adr;
+        auto heightAt = [&](int r, int c) -> double {
+          r = mjMAX(0, mjMIN(r, nrow - 1));
+          c = mjMAX(0, mjMIN(c, ncol - 1));
+          return static_cast<double>(H[r * ncol + c]) * sz;
+        };
+        for (int r = 0; r < nrow; ++r) {
+          for (int c = 0; c < ncol; ++c) {
+            double hx;
+            if (c == 0) {
+              double h0 = heightAt(r, 0);
+              double h1 = heightAt(r, mjMIN(1, ncol - 1));
+              hx = (h1 - h0) / dx;
+            } else if (c == ncol - 1) {
+              double hn1 = heightAt(r, ncol - 1);
+              double hn2 = heightAt(r, ncol - 2);
+              hx = (hn1 - hn2) / dx;
+            } else {
+              double hm = heightAt(r, c - 1);
+              double hp = heightAt(r, c + 1);
+              hx = (hp - hm) * self->terrain_normals_.inv2dx;
+            }
+
+            double hy;
+            if (r == 0) {
+              double h0 = heightAt(0, c);
+              double h1 = heightAt(mjMIN(1, nrow - 1), c);
+              hy = (h1 - h0) / dy;
+            } else if (r == nrow - 1) {
+              double hn1 = heightAt(nrow - 1, c);
+              double hn2 = heightAt(nrow - 2, c);
+              hy = (hn1 - hn2) / dy;
+            } else {
+              double hm2 = heightAt(r - 1, c);
+              double hp2 = heightAt(r + 1, c);
+              hy = (hp2 - hm2) * self->terrain_normals_.inv2dy;
+            }
+
+            double nx = -hx, ny = -hy, nz = 1.0;
+            double invlen = 1.0 / mju_sqrt(nx * nx + ny * ny + nz * nz + 1e-30);
+            size_t idx = static_cast<size_t>(r) * ncol + static_cast<size_t>(c);
+            self->terrain_normals_.data[3 * idx + 0] = static_cast<float>(nx * invlen);
+            self->terrain_normals_.data[3 * idx + 1] = static_cast<float>(ny * invlen);
+            self->terrain_normals_.data[3 * idx + 2] = static_cast<float>(nz * invlen);
+          }
+        }
+      }
+    }
+    hid = terrain_normals_.hfield_id;
+  }
+  if (terrain_gid < 0 || hid < 0 || terrain_normals_.data.empty()) return;
+
+  // terrain geom pose
+  const double* gpos = data->geom_xpos + 3 * terrain_gid;
+  const double* gmat = data->geom_xmat + 9 * terrain_gid;  // row-major 3x3
+
+  // visualize 16 vertex normals in a central 4x4 grid
+  int W = terrain_normals_.width;
+  int H = terrain_normals_.height;
+  if (W < 4 || H < 4) return;
+  int col0 = (W - 4) / 2;
+  int row0 = (H - 4) / 2;
+
+  // geometry size parameters (make arrows evident)
+  const float rgba[4] = {1.0f, 0.1f, 0.1f, 1.0f};
+  double arrow_radius = 0.02;   // thicker capsule for visibility
+  double arrow_len = 0.30;      // longer arrow for visibility
+  double base_radius = 0.015;   // small sphere at base
+
+  // iterate 4x4 central vertices
+  for (int di = 0; di < 4; ++di) {
+    for (int dj = 0; dj < 4; ++dj) {
+      int col = col0 + dj;
+      int row = row0 + di;
+      const float* nlocf = TerrainNormalAt(col, row);
+      if (!nlocf) continue;
+      double nloc[3] = {nlocf[0], nlocf[1], nlocf[2]};
+
+      // local vertex position in geom frame
+      double x_local = -terrain_normals_.sx + col * terrain_normals_.dx;
+      double y_local = -terrain_normals_.sy + row * terrain_normals_.dy;
+
+      // sample height at the vertex (same as used for normals)
+      int adr = model->hfield_adr[hid];
+      int ncol = model->hfield_ncol[hid];
+      const float* Hdata = model->hfield_data + adr;
+      double z_local = static_cast<double>(Hdata[row * ncol + col]) * terrain_normals_.sz;
+
+      // rotate position+normal to world
+      double p_local[3] = {x_local, y_local, z_local};
+      double p_world[3];
+      double n_world[3];
+      mju_mulMatVec(p_world, gmat, p_local, 3, 3);
+      mju_mulMatVec(n_world, gmat, nloc, 3, 3);
+      // translate to world position
+      p_world[0] += gpos[0];
+      p_world[1] += gpos[1];
+      p_world[2] += gpos[2];
+
+      // end point of the arrow
+      double tip_world[3] = {p_world[0] + arrow_len * n_world[0],
+                             p_world[1] + arrow_len * n_world[1],
+                             p_world[2] + arrow_len * n_world[2]};
+
+      // draw base sphere at the surface vertex
+      double base_size[3] = {base_radius, 0, 0};
+      AddGeom(scene, mjGEOM_SPHERE, base_size, p_world, /*mat=*/nullptr, rgba);
+
+      // draw arrow as a capsule along the normal from vertex to tip
+      AddConnector(scene, mjGEOM_CAPSULE, arrow_radius, p_world, tip_world, rgba);
+    }
+  }
+
+  // ---- Visualize interpolated normals inside the same region ----
+  // Bounds in local coordinates covering the 4x4 vertex block
+  double x_min_local = -terrain_normals_.sx + col0 * terrain_normals_.dx;
+  double x_max_local = -terrain_normals_.sx + (col0 + 3) * terrain_normals_.dx;
+  double y_min_local = -terrain_normals_.sy + row0 * terrain_normals_.dy;
+  double y_max_local = -terrain_normals_.sy + (row0 + 3) * terrain_normals_.dy;
+
+  // Bilinear height sampler in local frame
+  int ncol = model->hfield_ncol[hid];
+  int nrow = model->hfield_nrow[hid];
+  int adr  = model->hfield_adr[hid];
+  const float* Hdata = model->hfield_data + adr;
+  auto HeightBilinearLocal = [&](double x_local, double y_local) {
+    double sx = terrain_normals_.sx, sy = terrain_normals_.sy;
+    double dx = terrain_normals_.dx, dy = terrain_normals_.dy;
+    double u = (x_local + sx) / dx;  // col
+    double v = (y_local + sy) / dy;  // row
+    int x0 = (int)mju_floor(u), y0 = (int)mju_floor(v);
+    int x1 = x0 + 1, y1 = y0 + 1;
+    double tx = u - x0, ty = v - y0;
+    x0 = mjMAX(0, mjMIN(x0, ncol - 1));
+    x1 = mjMAX(0, mjMIN(x1, ncol - 1));
+    y0 = mjMAX(0, mjMIN(y0, nrow - 1));
+    y1 = mjMAX(0, mjMIN(y1, nrow - 1));
+    double h00 = Hdata[y0 * ncol + x0];
+    double h10 = Hdata[y0 * ncol + x1];
+    double h01 = Hdata[y1 * ncol + x0];
+    double h11 = Hdata[y1 * ncol + x1];
+    double h0 = (1.0 - tx) * h00 + tx * h10;
+    double h1 = (1.0 - tx) * h01 + tx * h11;
+    return ((1.0 - ty) * h0 + ty * h1) * terrain_normals_.sz;
+  };
+
+  // Interpolated arrows styling (distinct color and size)
+  const float rgba_i[4] = {0.1f, 1.0f, 1.0f, 1.0f};
+  double arrow_radius_i = 0.012;
+  double arrow_len_i = 0.20;
+  double base_radius_i = 0.010;
+
+  // Sample a grid within the region to visualize bilinear normal interpolation
+  int S = 7;  // samples per axis (including endpoints)
+  for (int iy = 0; iy < S; ++iy) {
+    double ty = (S == 1) ? 0.0 : (double)iy / (double)(S - 1);
+    double y_loc = (1.0 - ty) * y_min_local + ty * y_max_local;
+    for (int ix = 0; ix < S; ++ix) {
+      double tx = (S == 1) ? 0.0 : (double)ix / (double)(S - 1);
+      double x_loc = (1.0 - tx) * x_min_local + tx * x_max_local;
+
+      double n_loc[3];
+      if (!TerrainNormalBilinearLocal(x_loc, y_loc, n_loc)) continue;
+      double z_loc = HeightBilinearLocal(x_loc, y_loc);
+
+      double p_loc[3] = {x_loc, y_loc, z_loc};
+      double p_w[3], n_w[3];
+      mju_mulMatVec(p_w, gmat, p_loc, 3, 3);
+      mju_mulMatVec(n_w, gmat, n_loc, 3, 3);
+      p_w[0] += gpos[0];
+      p_w[1] += gpos[1];
+      p_w[2] += gpos[2];
+
+      double tip_w[3] = {p_w[0] + arrow_len_i * n_w[0],
+                         p_w[1] + arrow_len_i * n_w[1],
+                         p_w[2] + arrow_len_i * n_w[2]};
+
+      double base_size_i[3] = {base_radius_i, 0, 0};
+      AddGeom(scene, mjGEOM_SPHERE, base_size_i, p_w, /*mat=*/nullptr, rgba_i);
+      AddConnector(scene, mjGEOM_CAPSULE, arrow_radius_i, p_w, tip_w, rgba_i);
+    }
+  }
+
+  // ---- Visualize 5 clearance sites: head + 4 knees ----
+  const float rgba_head[4] = {1.0f, 0.2f, 0.2f, 1.0f};
+  const float rgba_knee[4] = {1.0f, 0.2f, 0.2f, 1.0f};
+  double site_r = 0.03;  // default knee radius; head is overridden below
+  double sz3[3] = {site_r, 0, 0};
+
+  // Head site position
+  if (head_site_id_vis_ >= 0) {
+    const double* p = data->site_xpos + 3 * head_site_id_vis_;
+    // Use the exact head collision sphere radius if present: find sphere geom
+    // attached to the trunk body and nearest the head site
+    int trunk_bid = mj_name2id(model, mjOBJ_BODY, "trunk");
+    double head_r = site_r;
+    if (trunk_bid >= 0) {
+      int best = -1;
+      double bestd2 = 1e30;
+      for (int gi = 0; gi < model->ngeom; ++gi) {
+        if (model->geom_type[gi] != mjGEOM_SPHERE) continue;
+        if (model->geom_bodyid[gi] != trunk_bid) continue;
+        // prefer collision geoms
+        if (model->geom_group[gi] != 3) continue;
+        const double* gc = data->geom_xpos + 3 * gi;
+        double dx = gc[0] - p[0];
+        double dy = gc[1] - p[1];
+        double dz = gc[2] - p[2];
+        double d2 = dx*dx + dy*dy + dz*dz;
+        if (d2 < bestd2) { bestd2 = d2; best = gi; }
+      }
+      if (best >= 0) head_r = model->geom_size[3 * best + 0];
+    }
+    double sz_head[3] = {head_r, 0, 0};
+    AddGeom(scene, mjGEOM_SPHERE, sz_head, p, /*mat=*/nullptr, rgba_head);
+  }
+  // Knees: use body COM positions as proxies (calf bodies)
+  for (int k = 0; k < 4; ++k) {
+    int bid = knee_body_id_[k];
+    if (bid < 0) continue;
+    const double* p = data->xpos + 3 * bid;
+    AddGeom(scene, mjGEOM_SPHERE, sz3, p, /*mat=*/nullptr, rgba_knee);
+  }
+}
+
+bool MjTwin::TerrainNormalBilinearLocal(double x_local, double y_local, double n_local[3]) const {
+  // Availability
+  int W = terrain_normals_.width;
+  int H = terrain_normals_.height;
+  if (W <= 0 || H <= 0 || terrain_normals_.data.empty()) return false;
+
+  // Map local x,y in [-sx, +sx], [-sy, +sy] to grid coordinates
+  double sx = terrain_normals_.sx;
+  double sy = terrain_normals_.sy;
+  double dx = terrain_normals_.dx;
+  double dy = terrain_normals_.dy;
+  if (dx <= 0 || dy <= 0) return false;
+
+  double u = (x_local + sx) / dx;  // col space
+  double v = (y_local + sy) / dy;  // row space
+
+  // Integer cell and weights
+  int x0 = (int)mju_floor(u);
+  int y0 = (int)mju_floor(v);
+  int x1 = x0 + 1;
+  int y1 = y0 + 1;
+  double tx = u - x0;
+  double ty = v - y0;
+
+  // Clamp to valid bilinear neighborhood
+  if (x0 < 0) { x0 = 0; x1 = 0; tx = 0.0; }
+  if (y0 < 0) { y0 = 0; y1 = 0; ty = 0.0; }
+  if (x1 >= W) { x1 = W - 1; x0 = W - 1; tx = 0.0; }
+  if (y1 >= H) { y1 = H - 1; y0 = H - 1; ty = 0.0; }
+
+  const float* n00 = TerrainNormalAt(x0, y0);
+  const float* n10 = TerrainNormalAt(x1, y0);
+  const float* n01 = TerrainNormalAt(x0, y1);
+  const float* n11 = TerrainNormalAt(x1, y1);
+  if (!n00 || !n10 || !n01 || !n11) return false;
+
+  // Bilinear blend then renormalize (Phong-style normal interpolation)
+  double nx0 = (1.0 - tx) * n00[0] + tx * n10[0];
+  double ny0 = (1.0 - tx) * n00[1] + tx * n10[1];
+  double nz0 = (1.0 - tx) * n00[2] + tx * n10[2];
+
+  double nx1 = (1.0 - tx) * n01[0] + tx * n11[0];
+  double ny1 = (1.0 - tx) * n01[1] + tx * n11[1];
+  double nz1 = (1.0 - tx) * n01[2] + tx * n11[2];
+
+  double nx = (1.0 - ty) * nx0 + ty * nx1;
+  double ny = (1.0 - ty) * ny0 + ty * ny1;
+  double nz = (1.0 - ty) * nz0 + ty * nz1;
+
+  double invlen = 1.0 / mju_sqrt(nx * nx + ny * ny + nz * nz + 1e-30);
+  n_local[0] = nx * invlen;
+  n_local[1] = ny * invlen;
+  n_local[2] = nz * invlen;
+  return true;
+}
+
+bool MjTwin::TerrainNormalBilinearWorld(const mjModel* model, const mjData* data,
+                                        double x_world, double y_world,
+                                        double n_world[3]) const {
+  // Find terrain geom and its pose
+  int terrain_gid = cached_terrain_geom_id_ >= 0 ? cached_terrain_geom_id_
+                                                 : mj_name2id(model, mjOBJ_GEOM, "terrain");
+  if (terrain_gid < 0) return false;
+  const double* gpos = data->geom_xpos + 3 * terrain_gid;
+  const double* gmat = data->geom_xmat + 9 * terrain_gid;  // row-major
+
+  // Transform world XY into local geom frame XY (ignore Z for projection)
+  double p_world[3] = {x_world - gpos[0], y_world - gpos[1], 0.0};
+  // Inverse rotation: n_local = R^T * p_world; since gmat is row-major, R^T is its transpose
+  double p_local_xy[3];
+  // Multiply by transpose: R^T * [x;y;0]
+  p_local_xy[0] = gmat[0] * p_world[0] + gmat[3] * p_world[1] + gmat[6] * p_world[2];
+  p_local_xy[1] = gmat[1] * p_world[0] + gmat[4] * p_world[1] + gmat[7] * p_world[2];
+  p_local_xy[2] = 0.0;
+
+  double n_local[3];
+  if (!TerrainNormalBilinearLocal(p_local_xy[0], p_local_xy[1], n_local)) return false;
+
+  // Rotate local normal to world: n_world = R * n_local
+  mju_mulMatVec(n_world, gmat, n_local, 3, 3);
+  // ensure unit length after numeric drift
+  double inv = 1.0 / mju_sqrt(mju_dot(n_world, n_world, 3) + 1e-30);
+  n_world[0] *= inv; n_world[1] *= inv; n_world[2] *= inv;
+  return true;
+}
+
+bool MjTwin::TerrainHeightBilinearLocal(const mjModel* model,
+                                        double x_local, double y_local,
+                                        double& z_local) const {
+  int W = terrain_normals_.width;
+  int H = terrain_normals_.height;
+  int hid = terrain_normals_.hfield_id;
+  if (W <= 0 || H <= 0 || hid < 0) return false;
+  int adr = model->hfield_adr[hid];
+  const float* Hdata = model->hfield_data + adr;
+
+  double u = (x_local + terrain_normals_.sx) / terrain_normals_.dx;
+  double v = (y_local + terrain_normals_.sy) / terrain_normals_.dy;
+  int x0 = (int)mju_floor(u), y0 = (int)mju_floor(v);
+  int x1 = x0 + 1, y1 = y0 + 1;
+  double tx = u - x0, ty = v - y0;
+  x0 = mjMAX(0, mjMIN(x0, W - 1));
+  x1 = mjMAX(0, mjMIN(x1, W - 1));
+  y0 = mjMAX(0, mjMIN(y0, H - 1));
+  y1 = mjMAX(0, mjMIN(y1, H - 1));
+
+  double h00 = Hdata[y0 * W + x0];
+  double h10 = Hdata[y0 * W + x1];
+  double h01 = Hdata[y1 * W + x0];
+  double h11 = Hdata[y1 * W + x1];
+  double h0 = (1.0 - tx) * h00 + tx * h10;
+  double h1 = (1.0 - tx) * h01 + tx * h11;
+  double h = (1.0 - ty) * h0 + ty * h1;
+
+  z_local = terrain_normals_.sz * h;
+  return true;
+}
+
+bool MjTwin::TerrainSurfaceAndNormalWorld(const mjModel* model, const mjData* data,
+                                          double x_world, double y_world,
+                                          double s_world[3], double n_world[3]) const {
+  int terrain_gid = cached_terrain_geom_id_ >= 0 ? cached_terrain_geom_id_
+                                                 : mj_name2id(model, mjOBJ_GEOM, "terrain");
+  if (terrain_gid < 0) return false;
+
+  const double* R = data->geom_xmat + 9 * terrain_gid;
+  const double* c = data->geom_xpos + 3 * terrain_gid;
+
+  double pw[3] = {x_world - c[0], y_world - c[1], 0.0};
+  double pl[3];
+  // local = R^T * pw
+  mju_mulMatTVec(pl, R, pw, 3, 3);
+
+  double nL[3];
+  if (!TerrainNormalBilinearLocal(pl[0], pl[1], nL)) return false;
+  double zL;
+  if (!TerrainHeightBilinearLocal(model, pl[0], pl[1], zL)) return false;
+
+  double sL[3] = {pl[0], pl[1], zL};
+  mju_mulMatVec(s_world, R, sL, 3, 3);
+  s_world[0] += c[0];
+  s_world[1] += c[1];
+  s_world[2] += c[2];
+
+  mju_mulMatVec(n_world, R, nL, 3, 3);
+  double inv = 1.0 / mju_sqrt(mju_dot(n_world, n_world, 3) + 1e-30);
+  n_world[0] *= inv;
+  n_world[1] *= inv;
+  n_world[2] *= inv;
+  return true;
 }
 
 }  // namespace mjpc
