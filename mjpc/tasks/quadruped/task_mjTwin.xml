@@ -55,6 +55,8 @@
 
     <hfield name="hf133" file="../assets/hfield.png" size="3 3 1 2"/>
     <hfield name="costmap" file="../assets/costmap.png" size="3 3 1 0.01"/>
+    <hfield name="hf133" file="../assets/hfield.png" size="3 3 1 2"/>
+    <hfield name="costmap" file="../assets/costmap.png" size="3 3 1 0.01"/>
 
   </asset>
 
@@ -70,6 +72,7 @@
     <geom name="terrain" pos="1.5 0 0.0" type="hfield" hfield="hf133" material="terrain_mat" condim="3"/>
     <geom name="terrain_cost" pos="1.5 0 -0.03" type="hfield" hfield="costmap" material="cost_mat" contype="0" conaffinity="0" group="3"/>
 
+    <!-- <body name="goal" mocap="true" pos="2.0 0 0.35"> -->
     <body name="goal" mocap="true" pos="2.0 0 0.35">
       <geom size="0.05" contype="0" conaffinity="0" rgba="0.678 0.847 0.902 0.7" group="2"/>
     </body>

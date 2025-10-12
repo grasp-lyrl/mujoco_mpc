@@ -234,6 +234,19 @@ class QuadrupedFlat : public Task {
     int terrain_hfield_id_    = -1;
     int terrain_geom_id_      = -1;
 
+    // clearance cost: ids and radii
+    int clear_cost_id_        = -1;
+    int head_site_id_clear_   = -1;
+    int knee_body_id_clear_[4] = {-1, -1, -1, -1};  // FL, FR, HL, HR
+    double head_radius_clear_ = 0.03;
+    double knee_radius_clear_ = 0.03;
+    // trunk forward sensors to penalize (match collision meshes):
+    // cylinder and sphere geoms on trunk (group=3)
+    int trunk_cyl_geom_id_clear_ = -1;
+    int trunk_sph_geom_id_clear_ = -1;
+    double trunk_cyl_radius_clear_ = 0.03;  // cylinder radius (size[0])
+    double trunk_sph_radius_clear_ = 0.03;  // sphere radius (size[0])
+
     // derived kinematic quantities describing flip trajectory
     double gravity_           = 0;
     double jump_vel_          = 0;
@@ -301,6 +314,58 @@ class MjTwin : public QuadrupedFlat {
   std::string Name() const override;
   std::string XmlPath() const override;
   void ResetLocked(const mjModel* model) override;
+  void ModifyScene(const mjModel* model, const mjData* data,
+                   mjvScene* scene) const override;
+
+  // O(1) accessor for precomputed terrain hfield vertex normals
+  // Arguments: (col, row) with col in [0, width), row in [0, height)
+  const float* TerrainNormalAt(int col, int row) const {
+    if (terrain_normals_.width == 0 || terrain_normals_.height == 0) return nullptr;
+    if (col < 0 || row < 0 || col >= terrain_normals_.width || row >= terrain_normals_.height) return nullptr;
+    return &terrain_normals_.data[3 * (row * terrain_normals_.width + col)];
+  }
+
+  // Bilinear interpolate local-frame normal at local xy (meters in geom frame).
+  // Returns false if out of bounds or normals unavailable.
+  bool TerrainNormalBilinearLocal(double x_local, double y_local, double n_local[3]) const;
+
+  // Bilinear interpolate world-frame normal at world xy (meters), using terrain geom pose.
+  // Returns false if terrain geom or normals unavailable.
+  bool TerrainNormalBilinearWorld(const mjModel* model, const mjData* data,
+                                  double x_world, double y_world,
+                                  double n_world[3]) const;
+
+  // Bilinear height of terrain at local xy (meters in geom frame). Includes base.
+  bool TerrainHeightBilinearLocal(const mjModel* model,
+                                  double x_local, double y_local,
+                                  double& z_local) const;
+
+  // Combined sampler: surface point and normal in world frame at world (x,y).
+  bool TerrainSurfaceAndNormalWorld(const mjModel* model, const mjData* data,
+                                    double x_world, double y_world,
+                                    double s_world[3], double n_world[3]) const;
+  int TerrainNormalsWidth() const { return terrain_normals_.width; }
+  int TerrainNormalsHeight() const { return terrain_normals_.height; }
+
+ private:
+  struct HFieldNormals {
+    int width = 0;
+    int height = 0;
+    // MuJoCo hfield metric scales (for reference)
+    double sx = 0.0, sy = 0.0, sz = 1.0;
+    // Grid spacing and their reciprocals (useful for sampling/ROI)
+    double dx = 0.0, dy = 0.0;
+    double inv2dx = 0.0, inv2dy = 0.0;
+    int hfield_id = -1;  // source hfield id in model
+    std::vector<float> data;  // row-major, 3 floats per vertex (nx, ny, nz)
+  } terrain_normals_;
+
+  // Cached id for terrain geom (name: "terrain")
+  int cached_terrain_geom_id_ = -1;
+
+  // Visualization IDs for norm-clearance preview (head + 4 knees)
+  int head_site_id_vis_ = -1;
+  int knee_body_id_[4] = {-1, -1, -1, -1};  // order: FL, FR, HL, HR
 };
 
 class QuadrupedHill : public Task {
