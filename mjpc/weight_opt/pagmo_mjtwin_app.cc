@@ -6,140 +6,135 @@
 #include <filesystem>
 #include <cstdlib>
 #include <thread>
+#include <algorithm>
 
 #include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
 #include <pagmo/algorithms/de.hpp>
+#include <pagmo/algorithm.hpp>
 #include <pagmo/problem.hpp>
-#include <pagmo/island.hpp>
-#include <pagmo/archipelago.hpp>
 #include <fstream>
 #include <sstream>
 #include <random>
 
 #include "mjpc/weight_opt/pagmo_mjtwin_problem.h"
 #include "mjpc/weight_opt/weights_opt.h"
+#include "mjpc/utilities.h"
 
-ABSL_FLAG(int, planner_thread, 0, "planner threads (0=all cores)");
-ABSL_FLAG(double, total_time, 10.0, "rollout seconds");
-ABSL_FLAG(int, pop_size, 32, "population size");
-ABSL_FLAG(int, iters, 50, "evolution iterations");
-ABSL_FLAG(int, seed, 42, "seed");
+
+
+ABSL_FLAG(double, episode_time, 10.0, "episode rollout seconds");
+ABSL_FLAG(int,    pop_size, 40, "population size");
+ABSL_FLAG(int,    iters, 120, "evolution iterations");
 ABSL_FLAG(double, success_radius_m, 0.10, "success radius in meters");
-ABSL_FLAG(std::string, freeze_mask, "", "01 string to freeze terms");
-ABSL_FLAG(int, log_every, 1, "print progress every N iterations (0=off)");
-ABSL_FLAG(int, islands, 1, "number of parallel islands");
-ABSL_FLAG(int, save_video_every, 4, "save a short video every N iterations (0=off)");
-ABSL_FLAG(int, video_width, 480, "video width");
-ABSL_FLAG(int, video_height, 270, "video height");
+ABSL_FLAG(int,    log_every, 1, "print progress every N iterations (0=off)");
+ABSL_FLAG(int,    save_video_every, 4, "save a short video every N iterations (0=off)");
+ABSL_FLAG(int,    video_width, 960, "video width");
+ABSL_FLAG(int,    video_height, 540, "video height");
 ABSL_FLAG(double, video_fps, 24.0, "video fps");
-ABSL_FLAG(double, video_duration, 4.0, "video duration seconds per snapshot");
-ABSL_FLAG(bool, save_eval_videos, false, "save per-evaluation videos (true=default)");
-ABSL_FLAG(int, save_eval_video_every, 1, "save one out of N per-evaluation videos (1=every, 0=none)");
-ABSL_FLAG(bool, save_initial_eval_videos, true, "save videos for initial-seed evaluations");
-ABSL_FLAG(bool, save_final_video, true, "save final video at the end");
-ABSL_FLAG(bool, final_video_fresh, true, "render a fresh final video (skip copying existing eval video)");
+ABSL_FLAG(double, video_duration, 6.0, "video duration seconds per snapshot");
+ABSL_FLAG(bool,   save_final_video, true, "save final video at the end");
+ABSL_FLAG(bool,   final_video_fresh, true, "render a fresh final video (skip copying existing eval video)");
 ABSL_FLAG(std::string, out_dir, "exps", "output directory for csv, weights, videos (relative paths are under build dir)");
 ABSL_FLAG(std::string, video_basename, "mjtwin_run", "basename for output video files");
-ABSL_FLAG(bool, force_video, false, "force attempting video (osmesa only)");
-ABSL_FLAG(bool, pace_realtime, true, "pace physics to wall-clock time during evaluation and video");
-ABSL_FLAG(bool, elitism, true, "inject best-so-far into population each iteration");
-ABSL_FLAG(bool, final_from_last_iter, false, "use last iteration champion for final video instead of global best");
-ABSL_FLAG(bool, save_iter_champion_video, false, "save per-iteration champion video (disabled by default)");
+ABSL_FLAG(bool,   pace_realtime, true, "pace physics to wall-clock time (sleep to sync); false runs as fast as possible");
+ABSL_FLAG(bool,   elitism, true, "inject best-so-far into population each iteration");
+ABSL_FLAG(bool,   save_iter_champion_video, false, "save per-iteration champion video (disabled by default)");
+
+
 
 int main(int argc, char** argv) {
-  absl::ParseCommandLine(argc, argv);
-  int planner_threads = absl::GetFlag(FLAGS_planner_thread);
-  if (planner_threads == 0) {
-    unsigned int hc = std::thread::hardware_concurrency();
-    planner_threads = hc > 0 ? (int)hc : 1;
-  }
-  // removed steps_per_planning_iteration: planner updates continuously
-  double total_time = absl::GetFlag(FLAGS_total_time);
-  int pop_size = absl::GetFlag(FLAGS_pop_size);
-  int iters = absl::GetFlag(FLAGS_iters);
 
-  std::cout << "Weights Optimization: starting for task 'mjTwin'." << std::endl;
+  absl::ParseCommandLine(argc, argv);
+  int planner_threads = std::max(1, mjpc::NumAvailableHardwareThreads() - 3);
+  double episode_time = absl::GetFlag(FLAGS_episode_time);
+  int pop_size        = absl::GetFlag(FLAGS_pop_size);
+  int iters           = absl::GetFlag(FLAGS_iters);
+
+  std::cout << "Differential Evolution" << std::endl;
   std::cout << "Configuration:" << std::endl
-            << "  planner_threads=" << planner_threads << std::endl
-            << "  rollout_horizon_seconds=" << total_time << std::endl
-            << "  population_size_per_island=" << pop_size << std::endl
-            << "  iterations=" << iters << std::endl;
+            << "   episode_time       = " << episode_time << std::endl
+            << "   population_size    = " << pop_size << std::endl
+            << "   optimization iters = " << iters << std::endl;
 
   std::vector<std::string> names = mjpc::weights_opt::ListCostTermNames("mjTwin");
-  if (names.empty()) {
-    std::cerr << "no terms" << std::endl;
-    return -1;
-  }
-
   std::vector<char> mask(names.size(), 1);
-  std::string mask_str = absl::GetFlag(FLAGS_freeze_mask);
-  if (!mask_str.empty()) {
-    for (size_t i = 0; i < names.size() && i < mask_str.size(); ++i) mask[i] = (mask_str[i] != '0');
-  } else {
-    for (size_t i = 0; i < names.size(); ++i) {
-      std::string n = names[i];
-      for (auto& c : n) c = std::tolower(c);
-      if (n == "orientation" || n == "angmom" || n == "height") mask[i] = 0;
-      if (n == "footcost" || n == "effort") mask[i] = 0;
-    }
+
+  for (size_t i = 0; i < names.size(); ++i) {
+    std::string n = names[i];
+    for (auto& c : n) c = std::tolower(c);
+    if (n == "orientation" || n == "angmom" || n == "height") mask[i] = 0;
+    if (n == "footcost" || n == "effort") mask[i] = 0;
+    if (n == "normclear") mask[i] = 0;
   }
 
   std::vector<std::string> opt_names;
-  for (size_t i = 0; i < names.size(); ++i) if (mask[i]) opt_names.push_back(names[i]);
+  for (size_t i = 0; i < names.size(); ++i)
+    if (mask[i])
+      opt_names.push_back(names[i]);
 
-  std::cout << "Cost terms:" << std::endl
-            << "  total_terms=" << names.size() << std::endl
-            << "  optimizing_terms=" << opt_names.size() << std::endl;
-
-  mjpc::weights_opt::Runner init_runner("mjTwin", planner_threads, total_time);
+  mjpc::weights_opt::Runner init_runner("mjTwin", planner_threads, episode_time);
   std::vector<double> init_defaults = init_runner.DefaultWeights();
   std::vector<double> init_opt_values;
-  for (size_t i = 0; i < names.size(); ++i) if (i < mask.size() && mask[i]) init_opt_values.push_back(i < init_defaults.size() ? init_defaults[i] : 0.0);
-  std::cout << "Initial optimized weights:" << std::endl;
+
+  for (size_t i = 0; i < names.size(); ++i)
+    if (i < mask.size() && mask[i])
+      init_opt_values.push_back(i < init_defaults.size() ? init_defaults[i] : 0.0);
+  
+  std::cout << "Optimizing: " << opt_names.size() << " out of " << names.size() << " terms" << std::endl;
+  std::cout << "Default Weights: ";
   for (size_t i = 0; i < opt_names.size() && i < init_opt_values.size(); ++i) {
-    std::cout << "  " << opt_names[i] << "=" << init_opt_values[i] << std::endl;
+    if (i > 0) std::cout << " - ";
+    std::cout << opt_names[i] << " = " << init_opt_values[i];
   }
+  std::cout << std::endl;
 
-  // baseline video disabled: default weights are injected via elitism in iter 0
 
-  pagmo::problem prob{mjpc::weights_opt::MjTwinWeightsProblem(names, mask, planner_threads, total_time, absl::GetFlag(FLAGS_success_radius_m))};
-  pagmo::de algo;
-  int num_islands = absl::GetFlag(FLAGS_islands);
-  pagmo::archipelago arch;
+  pagmo::problem prob{mjpc::weights_opt::MjTwinWeightsProblem(names, mask, planner_threads, episode_time, absl::GetFlag(FLAGS_success_radius_m))};
+  pagmo::algorithm algo{pagmo::de{}};
   auto bounds = prob.get_bounds();
   auto lb = bounds.first;
   auto ub = bounds.second;
   auto nx = prob.get_nx();
-  int seed_base = absl::GetFlag(FLAGS_seed);
-  for (int i = 0; i < num_islands; ++i) {
-    pagmo::population pop{prob, 0u};
-    std::mt19937 rng(seed_base + i);
-    if (absl::GetFlag(FLAGS_elitism)) {
-      // push default weights first (counts as one evaluation)
-      pop.push_back(init_opt_values);
-      for (int k = 1; k < pop_size; ++k) {
-        pagmo::vector_double x(nx, 0.0);
-        for (std::size_t d = 0; d < nx; ++d) {
-          std::uniform_real_distribution<double> dist(lb[d], ub[d]);
-          x[d] = dist(rng);
-        }
-        pop.push_back(x);
+  pagmo::population pop{prob, 0u};
+  // RNG for population init
+  std::mt19937 rng(std::random_device{}());
+  // single-line progress for initial population generation
+  auto print_init_progress = [&](int done, int total) {
+    std::cout << "\rInitializing population " << done << "/" << total << std::flush;
+  };
+  int init_done = 0;
+  print_init_progress(init_done, pop_size);
+  if (absl::GetFlag(FLAGS_elitism)) {
+    // push default weights first (counts as one evaluation)
+    pop.push_back(init_opt_values);
+    init_done = 1;
+    print_init_progress(init_done, pop_size);
+    for (int k = 1; k < pop_size; ++k) {
+      pagmo::vector_double x(nx, 0.0);
+      for (std::size_t d = 0; d < nx; ++d) {
+        std::uniform_real_distribution<double> dist(lb[d], ub[d]);
+        x[d] = dist(rng);
       }
-    } else {
-      // fully random initial population
-      for (int k = 0; k < pop_size; ++k) {
-        pagmo::vector_double x(nx, 0.0);
-        for (std::size_t d = 0; d < nx; ++d) {
-          std::uniform_real_distribution<double> dist(lb[d], ub[d]);
-          x[d] = dist(rng);
-        }
-        pop.push_back(x);
-      }
+      pop.push_back(x);
+      init_done++;
+      print_init_progress(init_done, pop_size);
     }
-    arch.push_back(pagmo::island{algo, pop});
+  } else {
+    // fully random initial population
+    for (int k = 0; k < pop_size; ++k) {
+      pagmo::vector_double x(nx, 0.0);
+      for (std::size_t d = 0; d < nx; ++d) {
+        std::uniform_real_distribution<double> dist(lb[d], ub[d]);
+        x[d] = dist(rng);
+      }
+      pop.push_back(x);
+      init_done++;
+      print_init_progress(init_done, pop_size);
+    }
   }
-  std::cout << "Evolution topology: islands=" << num_islands << ", population_per_island=" << pop_size << std::endl;
+  std::cout << std::endl;
+
   // Prepare initial-evals routing; initial population evaluated with iter=-1.
   mjpc::weights_opt::SetCurrentIterationIndex(-1);
   std::string out_dir = absl::GetFlag(FLAGS_out_dir);
@@ -153,7 +148,7 @@ int main(int argc, char** argv) {
   int vW = absl::GetFlag(FLAGS_video_width);
   int vH = absl::GetFlag(FLAGS_video_height);
   double vFPS = absl::GetFlag(FLAGS_video_fps);
-  double vDur = std::min(absl::GetFlag(FLAGS_video_duration), total_time);
+  double vDur = std::min(absl::GetFlag(FLAGS_video_duration), episode_time);
   bool pace_realtime = absl::GetFlag(FLAGS_pace_realtime);
   auto can_render = [](){
     const char* gl = std::getenv("MUJOCO_GL");
@@ -163,15 +158,12 @@ int main(int argc, char** argv) {
     if (v == "glfw") return std::getenv("DISPLAY") && *std::getenv("DISPLAY");
     return false;
   };
-  bool force_video = absl::GetFlag(FLAGS_force_video);
-  bool render_ok = can_render() || force_video;
+  bool render_ok = can_render();
   if (!render_ok) {
     const char* gl = std::getenv("MUJOCO_GL");
     std::string backend = gl ? std::string(gl) : std::string("");
     std::cout << "video disabled for backend='" << backend << "' (supported: osmesa, or glfw with DISPLAY)." << std::endl;
   }
-
-  // (no baseline video)
 
   // Clear any seed-eval stats so iter_0 counts only its own evaluations
   {
@@ -189,19 +181,11 @@ int main(int argc, char** argv) {
     mjpc::weights_opt::SetCurrentIterationIndex(i);
     // Inject elite (best-so-far) into population before evolving
     if (absl::GetFlag(FLAGS_elitism) && have_prev_best) {
-      int prev_iter_idx = mjpc::weights_opt::GetCurrentIterationIndex();
-      mjpc::weights_opt::SetCurrentIterationIndex(-1);
-      for (auto &isl : arch) {
-        auto pop = isl.get_population();
-        if (pop.size() > 0 && prev_best.size() == pop.get_x()[0].size()) {
-          pop.set_x(0, prev_best);
-          isl.set_population(pop);
-        }
+      if (pop.size() > 0 && prev_best.size() == pop.get_x()[0].size()) {
+        pop.set_x(0, prev_best);
       }
-      mjpc::weights_opt::SetCurrentIterationIndex(prev_iter_idx);
     }
-    arch.evolve();
-    arch.wait_check();
+    pop = algo.evolve(pop);
     int iter_evals = 0, iter_fell = 0;
     mjpc::weights_opt::GetAndResetEvaluationStats(&iter_evals, &iter_fell);
     if (iter_evals > pop_size) iter_evals = pop_size;
@@ -224,18 +208,15 @@ int main(int argc, char** argv) {
       best = eval_infos[best_idx].optimized_x;
     } else {
       // Fallback: use population champion if no evaluation infos were recorded
-      for (auto &isl : arch) {
-        const auto &pop = isl.get_population();
-        auto f = pop.champion_f();
-        if (!f.empty() && f[0] < best_f) { best_f = f[0]; best = pop.champion_x(); }
-      }
+      auto f = pop.champion_f();
+      if (!f.empty()) { best_f = f[0]; best = pop.champion_x(); }
       if (!best.empty()) {
         mjpc::weights_opt::FindEvalIdForOptimizedWeights(i, best, &champ_eval_id);
       }
     }
 
-    std::cout << "Iteration " << i << ", cost=" << (std::isfinite(best_f) ? best_f : 0.0);
-    if (champ_eval_id >= 0) std::cout << ", champ=eval_" << champ_eval_id;
+    std::cout << "Iteration " << i << ", cost = " << (std::isfinite(best_f) ? best_f : 0.0);
+    if (champ_eval_id >= 0) std::cout << ", champ = " << champ_eval_id;
     std::cout << std::endl;
     std::ostringstream line;
     line << i;
@@ -249,7 +230,7 @@ int main(int argc, char** argv) {
       std::string iter_dir = out_dir + std::string("/iter_") + std::to_string(i);
       std::error_code ec_iter;
       std::filesystem::create_directories(iter_dir, ec_iter);
-      mjpc::weights_opt::Runner runner("mjTwin", planner_threads, total_time);
+      mjpc::weights_opt::Runner runner("mjTwin", planner_threads, episode_time);
       std::string out_video;
       std::string base = absl::GetFlag(FLAGS_video_basename) + std::string("_iter_") + std::to_string(i) + std::string("_champ");
       if (champ_eval_id >= 0) base += std::string("_eval_") + std::to_string(champ_eval_id);
@@ -289,16 +270,8 @@ int main(int argc, char** argv) {
     last_iter_best = best; last_iter_best_f = best_f;
   }
   hist.close();
-  pagmo::vector_double champion;
-  pagmo::vector_double champion_f;
-  {
-    double best_f = std::numeric_limits<double>::infinity();
-    for (auto &is : arch) {
-      const auto &pop = is.get_population();
-      auto f = pop.champion_f();
-      if (!f.empty() && f[0] < best_f) { best_f = f[0]; champion = pop.champion_x(); champion_f = f; }
-    }
-  }
+  pagmo::vector_double champion = pop.champion_x();
+  pagmo::vector_double champion_f = pop.champion_f();
 
   std::cout << "Final optimized weights:" << std::endl;
   for (size_t i = 0; i < opt_names.size() && i < champion.size(); ++i) {
@@ -313,8 +286,7 @@ int main(int argc, char** argv) {
 
   std::cout << "Artifacts saved in directory '" << out_dir << "': weights_over_time.csv, mjtwin_best_weights.txt" << std::endl;
   if (absl::GetFlag(FLAGS_save_final_video) && render_ok) {
-    bool use_last_iter = absl::GetFlag(FLAGS_final_from_last_iter);
-    const pagmo::vector_double& final_w = (use_last_iter && !last_iter_best.empty()) ? last_iter_best : champion;
+    const pagmo::vector_double& final_w = champion;
     std::string final_src;
     int final_eval_id = -1;
     // Optionally try to copy exact eval video if fresh rendering is disabled
@@ -333,8 +305,8 @@ int main(int argc, char** argv) {
         }
       }
     }
-    std::cout << "Rendering final video of " << (use_last_iter ? "last-iteration champion" : "global best") << " weights..." << std::endl;
-    mjpc::weights_opt::Runner runner("mjTwin", planner_threads, total_time);
+    std::cout << "Rendering final video (global best weights)" << std::endl;
+    mjpc::weights_opt::Runner runner("mjTwin", planner_threads, episode_time);
     std::string out_video;
     // reconstruct full vector for final render
     std::vector<double> dflt_full = runner.DefaultWeights();

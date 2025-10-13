@@ -676,15 +676,10 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   residual_.balance_cost_id_ = CostTermByName(model, "Balance");
   residual_.upright_cost_id_ = CostTermByName(model, "Upright");
   residual_.height_cost_id_ = CostTermByName(model, "Height");
-
-  // optional high-res FootCost term (only present in mjTwin)
   residual_.foot_cost_id_ = CostTermByName(model, "FootCost");
-
-  // clearance cost term id (optional; user sensor named "NormClear")
   residual_.clear_cost_id_ = CostTermByName(model, "NormClear");
-  // default: zero weight unless explicitly enabled (avoid affecting other tasks)
+
   if (residual_.clear_cost_id_ >= 0) {
-    // set weight to 0 for all tasks by default; will set non-zero in MjTwin Reset
     weight[residual_.clear_cost_id_] = 0.0;
   }
 
@@ -1903,7 +1898,7 @@ void MjTwin::ResetLocked(const mjModel* model) {
   {
     int nc_id = CostTermByName(model, "NormClear");
     if (nc_id >= 0) {
-      weight[nc_id] = 0.2;  // visible by default; tweakable
+      weight[nc_id] = 4.0;  // visible by default; tweakable
     }
   }
 

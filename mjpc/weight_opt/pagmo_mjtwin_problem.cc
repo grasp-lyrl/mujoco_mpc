@@ -20,9 +20,6 @@ ABSL_DECLARE_FLAG(double, video_fps);
 ABSL_DECLARE_FLAG(double, video_duration);
 ABSL_DECLARE_FLAG(bool, pace_realtime);
 ABSL_DECLARE_FLAG(std::string, video_basename);
-ABSL_DECLARE_FLAG(bool, save_eval_videos);
-ABSL_DECLARE_FLAG(int, save_eval_video_every);
-ABSL_DECLARE_FLAG(bool, save_initial_eval_videos);
 
 namespace mjpc {
 namespace weights_opt {
@@ -69,45 +66,14 @@ pagmo::vector_double MjTwinWeightsProblem::fitness(const pagmo::vector_double& x
   bool is_initial_seed = (iter_idx_now < 0);
   int eval_id = is_initial_seed ? (1 + eval_counter.fetch_add(1))
                                 : mjpc::weights_opt::NextFitEvalId();
-  // Optionally render per-evaluation video into appropriate subfolder
-  bool should_save = absl::GetFlag(FLAGS_save_eval_videos);
-  int every = absl::GetFlag(FLAGS_save_eval_video_every);
-  if (every <= 0) should_save = false;
-  // allow toggling initial seed video generation separately
-  if (is_initial_seed && !absl::GetFlag(FLAGS_save_initial_eval_videos)) should_save = false;
-  if (should_save && ((eval_id % every) == 0)) {
-    std::string out_root = absl::GetFlag(FLAGS_out_dir);
-    if (out_root.empty()) out_root = "exps";
-    std::string out_dir;
-    if (is_initial_seed) out_dir = out_root + "/initial_evals";
-    else if (iter_idx_now >= 0) out_dir = out_root + "/iter_" + std::to_string(iter_idx_now);
-    else out_dir = out_root;  // fallback
-    std::error_code ec;
-    std::filesystem::create_directories(out_dir, ec);
-    int vW = absl::GetFlag(FLAGS_video_width);
-    int vH = absl::GetFlag(FLAGS_video_height);
-    double vFPS = absl::GetFlag(FLAGS_video_fps);
-    double vDur = std::min(absl::GetFlag(FLAGS_video_duration), total_time_);
-    bool pace = absl::GetFlag(FLAGS_pace_realtime);
-    std::string base = absl::GetFlag(FLAGS_video_basename) + std::string("_eval_") + std::to_string(eval_id);
-    std::string out_video;
-    // reconstruct full from cur_x used for final evaluation
-    pagmo::vector_double full_for_video = defaults;
-    for (size_t i = 0, j = 0; i < names_.size() && j < cur_x.size(); ++i) {
-      if (i < mask_.size() && mask_[i]) { full_for_video[i] = cur_x[j++]; }
-    }
-    runner.RenderVideo(full_for_video, out_dir, vW, vH, vFPS, vDur, &out_video, base, /*pace_realtime=*/pace);
-    mjpc::weights_opt::RecordEvaluationMetadata(eval_id, is_initial_seed ? -1 : iter_idx_now, cur_x, full_for_video, fell, cost, out_video);
-  } else {
-    // still record metadata but without a video path
-    std::string empty;
-    // reconstruct full from cur_x used for final evaluation
-    pagmo::vector_double full_final = defaults;
-    for (size_t i = 0, j = 0; i < names_.size() && j < cur_x.size(); ++i) {
-      if (i < mask_.size() && mask_[i]) { full_final[i] = cur_x[j++]; }
-    }
-    mjpc::weights_opt::RecordEvaluationMetadata(eval_id, is_initial_seed ? -1 : iter_idx_now, cur_x, full_final, fell, cost, empty);
+  // Record metadata without per-evaluation video
+  std::string empty;
+  // reconstruct full from cur_x used for final evaluation
+  pagmo::vector_double full_final = defaults;
+  for (size_t i = 0, j = 0; i < names_.size() && j < cur_x.size(); ++i) {
+    if (i < mask_.size() && mask_[i]) { full_final[i] = cur_x[j++]; }
   }
+  mjpc::weights_opt::RecordEvaluationMetadata(eval_id, is_initial_seed ? -1 : iter_idx_now, cur_x, full_final, fell, cost, empty);
   // concise one-line output (skip numbering/printing for initial seed)
   if (!is_initial_seed) {
   std::cout << "FitEval #" << eval_id << ": cost=" << cost << ", weights=[";
