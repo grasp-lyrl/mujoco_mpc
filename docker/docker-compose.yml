@@ -26,6 +26,9 @@ services:
       XDG_RUNTIME_DIR: /tmp/runtime-${USER}
       HOME: /home/dimos
       MUJOCO_GL: glfw
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+      __NV_PRIME_RENDER_OFFLOAD: "1"
+      __VK_LAYER_NV_optimus: NVIDIA_only
 
     security_opt:
       - seccomp=unconfined
