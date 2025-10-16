@@ -1867,7 +1867,7 @@ void MjTwin::ResetLocked(const mjModel* model) {
   if (balance_cost_id >= 0) weight[balance_cost_id] = 0.165;            // Balance
   if (effort_cost_id >= 0) weight[effort_cost_id] = 0.08;               // Effort
   if (posture_cost_id >= 0) weight[posture_cost_id] = 0.0605;           // Posture
-  if (footcost_cost_id >= 0) weight[footcost_cost_id] = 0.065;          // FootCost
+  if (footcost_cost_id >= 0) weight[footcost_cost_id] = 0.0;            // FootCost
   if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;      // Orientation
   if (angmom_cost_id >= 0) weight[angmom_cost_id] = 0.0;                 // Angmom
 
@@ -1899,11 +1899,11 @@ void MjTwin::ResetLocked(const mjModel* model) {
   }
   if (arm_posture_id >= 0) parameters[arm_posture_id] = 0.0;
 
-  // If NormClear is present, enable it for MjTwin by setting a small default weight
+  // If NormClear is present, enable it for MjTwin with a higher default weight
   {
     int nc_id = CostTermByName(model, "NormClear");
     if (nc_id >= 0) {
-      weight[nc_id] = 0.2;  // visible by default; tweakable
+      weight[nc_id] = 4.0;  // default NormClear weight
     }
   }
 
