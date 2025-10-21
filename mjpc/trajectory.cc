@@ -136,6 +136,11 @@ void Trajectory::NoisyRollout(
   times[0] = time;
   data->time = time;
 
+  // initialize task-driven environment updates (e.g., moving mocap boxes)
+  // Ensure data-dependent quantities are current, then call environment-only transition.
+  mj_forward(model, data);
+  task->TransitionEnvOnlyConst(model, data);
+
   absl::BitGen gen;
 
   for (int t = 0; t < horizon - 1; t++) {
@@ -153,6 +158,9 @@ void Trajectory::NoisyRollout(
                                 absl::Gaussian<mjtNum>(gen, 0, scale);
       }
     }
+
+    // update task-driven environment each step before physics
+    task->TransitionEnvOnlyConst(model, data);
 
     // step
     mj_step(model, data);
@@ -248,10 +256,18 @@ void Trajectory::RolloutDiscrete(
   times[0] = time;
   data->time = time;
 
+  // initialize task-driven environment updates (e.g., moving mocap boxes)
+  // Ensure data-dependent quantities are current, then call environment-only transition.
+  mj_forward(model, data);
+  task->TransitionEnvOnlyConst(model, data);
+
   for (int t = 0; t < horizon - 1; t++) {
     // set action
     policy(DataAt(actions, t * nu), DataAt(states, t * dim_state), t);
     mju_copy(data->ctrl, DataAt(actions, t * nu), nu);
+
+    // update task-driven environment each step before physics
+    task->TransitionEnvOnlyConst(model, data);
 
     // step
     mj_step(model, data);

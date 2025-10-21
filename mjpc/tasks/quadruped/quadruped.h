@@ -314,6 +314,8 @@ class MjTwin : public QuadrupedFlat {
   std::string Name() const override;
   std::string XmlPath() const override;
   void ResetLocked(const mjModel* model) override;
+    void TransitionLocked(mjModel* model, mjData* data) override;
+  void TransitionEnvOnlyLocked(mjModel* model, mjData* data) override;
   void ModifyScene(const mjModel* model, const mjData* data,
                    mjvScene* scene) const override;
 
@@ -347,6 +349,39 @@ class MjTwin : public QuadrupedFlat {
   int TerrainNormalsWidth() const { return terrain_normals_.width; }
   int TerrainNormalsHeight() const { return terrain_normals_.height; }
 
+  // Return the top surface point and normal (world frame) of the mocap box
+  // corresponding to a given robot collision geom. Returns false if no such
+  // box mapping exists.
+  bool BoxTopSurfaceAndNormalForGeom(const mjModel* model, const mjData* data,
+                                     int geom_id,
+                                     double s_world[3], double n_world[3]) const;
+
+  // Same as above, but resolves via any collision geom that belongs to the
+  // specified body. Returns false if no mapped geom is found.
+  bool BoxTopSurfaceAndNormalForBody(const mjModel* model, const mjData* data,
+                                     int body_id,
+                                     double s_world[3], double n_world[3]) const;
+
+  // Intersection of the line from mesh point to box center with the box surface.
+  // Returns false if no corresponding box is found. s_world is the surface point
+  // where the line (from box center towards mesh point) exits the box.
+  bool BoxCenterRaySurfacePointForGeom(const mjModel* model, const mjData* data,
+                                       int geom_id, const double p_world[3],
+                                       double s_world[3]) const;
+
+  bool BoxCenterRaySurfacePointForBody(const mjModel* model, const mjData* data,
+                                       int body_id, const double p_world[3],
+                                       double s_world[3]) const;
+
+  // Closest point on the surface of the mocap box to a given world point.
+  // Uses oriented box geometry; returns false if no box is mapped.
+  bool BoxClosestSurfacePointForGeom(const mjModel* model, const mjData* data,
+                                     int geom_id, const double p_world[3],
+                                     double s_world[3]) const;
+  bool BoxClosestSurfacePointForBody(const mjModel* model, const mjData* data,
+                                     int body_id, const double p_world[3],
+                                     double s_world[3]) const;
+
  private:
   struct HFieldNormals {
     int width = 0;
@@ -366,6 +401,22 @@ class MjTwin : public QuadrupedFlat {
   // Visualization IDs for norm-clearance preview (head + 4 knees)
   int head_site_id_vis_ = -1;
   int knee_body_id_[4] = {-1, -1, -1, -1};  // order: FL, FR, HL, HR
+
+    // Mocap ids for support boxes (order: FL, FR, HL, HR)
+    int box_mocap_id_[4] = {-1, -1, -1, -1};
+    // Foot geom ids for convenience (order: FL, FR, HL, HR)
+    int foot_geom_id_boxref_[4] = {-1, -1, -1, -1};
+    // Box half-height in meters (size[2]) to position center below surface
+    double box_half_height_ = 0.04;
+
+    // Generic mapping: for any named robot collision geom G, if a mocap body
+    // named "box_"+G exists, we will update its pose each step.
+    struct PairMapEntry {
+      int geom_id = -1;
+      int mocap_id = -1;
+      double half_h = 0.02;
+    };
+    std::vector<PairMapEntry> generic_pairs_;
 };
 
 class QuadrupedHill : public Task {

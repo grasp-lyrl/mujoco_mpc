@@ -102,9 +102,19 @@ class Task {
   // lock
   void Transition(mjModel* model, mjData* data);
 
+  // Calls Transition while preserving constness for callers holding a const Task*.
+  // This enables read-only users (e.g., planners during rollouts) to invoke
+  // task-controlled environment updates such as mocap motion.
+  void TransitionConst(const mjModel* model, mjData* data) const;
+
   // get information from model
   // calls ResetLocked and InternalResidual()->Update() while holding a lock
   void Reset(const mjModel* model);
+
+  // Environment-only transition: tasks can override to update exogenous state
+  // (e.g., mocap targets) without performing stateful mode transitions.
+  // Thread-safe wrapper that calls TransitionEnvOnlyLocked with a lock.
+  void TransitionEnvOnlyConst(const mjModel* model, mjData* data) const;
 
   // calls CostTerms on the pointer returned from InternalResidual(), while
   // holding a lock
@@ -161,6 +171,8 @@ class Task {
   // ResidualLocked. In order to avoid such resource contention, mutex_ might be
   // temporarily unlocked, but it must be locked again before returning.
   virtual void TransitionLocked(mjModel* model, mjData* data) {}
+  // Optional environment-only transition (no mode/state changes by default)
+  virtual void TransitionEnvOnlyLocked(mjModel* model, mjData* data) {}
   // implementation of Task::Reset() which can assume a lock is held
   virtual void ResetLocked(const mjModel* model) {}
   // mutex which should be held on changes to InternalResidual.

@@ -1670,6 +1670,9 @@ void Simulate::LoadOnRenderThread() {
   }
   this->platform_ui->RefreshMjrContext(this->m, 50*(this->font+1));
 
+  // Ensure geom group 5 is enabled by default (boxes visibility)
+  this->opt.geomgroup[5] = 1;
+
   // clear perturbation state
   this->pert.active = 0;
   this->pert.select = 0;
@@ -2035,6 +2038,9 @@ void Simulate::InitializeRenderLoop() {
   mjui_add(&this->ui0, this->def_watch);
   UiModify(&this->ui0, &this->uistate, &this->platform_ui->mjr_context());
   UiModify(&this->ui1, &this->uistate, &this->platform_ui->mjr_context());
+
+  // Enable geom group 5 by default for the first run
+  this->opt.geomgroup[5] = 1;
 
   // set VSync to initial value
   this->platform_ui->SetVSync(this->vsync);

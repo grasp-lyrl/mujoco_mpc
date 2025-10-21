@@ -16,6 +16,7 @@
 
 #include <string>
 #include <cmath>
+#include <cstdio>
 
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
@@ -143,8 +144,17 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       mju_addToScl3(query, torso_to_goal, 0.15);
     }
 
-    double ground_height = Ground(model, data, query);
-    double height_target = ground_height + kFootRadius + step[foot];
+    // baseline ground under current foot position
+    double ground_now = Ground(model, data, foot_pos[foot]);
+    // ground at forward query (Scramble shifts it by 0.15 m toward goal)
+    double ground_future = Ground(model, data, query);
+    double height_target = ground_future + kFootRadius + step[foot];
+    // If terrain changes > 2 cm between now and 15 cm forward, add extra 2 cm
+    if (current_mode_ == kModeScramble) {
+      if (mju_abs(ground_future - ground_now) > 0.02) {
+        height_target += 0.02;
+      }
+    }
     double height_difference = foot_pos[foot][2] - height_target;
     if (current_mode_ == kModeScramble) {
       // in Scramble, foot higher than target is not penalized
@@ -304,18 +314,39 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
     // Only compute for mjTwin; otherwise emit zeros (match FootCost pattern)
     auto twin = dynamic_cast<const MjTwin*>(task_);
     if (twin && terrain_geom_id_ >= 0) {
-      constexpr double beta = 60.0;
+      constexpr double beta = 40.0;           // softer hinge for smoother gradients
+      constexpr double margin = 0.01;         // require >= 3 cm clearance
       // knees: FL, FR, HL, HR (immaterial spheres centered at calf COM)
       for (int k = 0; k < 4; ++k) {
         int bid = knee_body_id_clear_[k];
         if (bid >= 0) {
           const double* pk = data->xpos + 3 * bid;
-          double s_world[3], n_world[3];
-          if (twin->TerrainSurfaceAndNormalWorld(model, data, pk[0], pk[1], s_world, n_world)) {
-            double p_minus_s[3] = {pk[0]-s_world[0], pk[1]-s_world[1], pk[2]-s_world[2]};
-          double sN = mju_dot(n_world, p_minus_s, 3) - knee_radius_clear_;
-          constexpr double margin = 0.05;
-          double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
+          bool ok = false;
+          // Mesh-to-box distance via closest point on OBB surface
+          double cp[3];
+          ok = twin->BoxClosestSurfacePointForBody(model, data, bid, pk, cp);
+          if (ok) {
+            double d = mju_dist3(pk, cp);
+            double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
+            residual[counter++] = u;
+          } else {
+            residual[counter++] = 0;
+          }
+        } else {
+          residual[counter++] = 0;
+        }
+      }  // end for k
+
+      // shoulders: FL, FR, HL, HR (shoulder bodies)
+      for (int k = 0; k < 4; ++k) {
+        int bid = shoulder_body_id_[k];
+        if (bid >= 0) {
+          const double* ps = data->xpos + 3 * bid;
+          double cp[3];
+          bool ok = twin->BoxClosestSurfacePointForBody(model, data, bid, ps, cp);
+          if (ok) {
+            double d = mju_dist3(ps, cp);
+            double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
             residual[counter++] = u;
           } else {
             residual[counter++] = 0;
@@ -328,12 +359,12 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       // trunk cylinder geom (treated as sphere with radius=size[0] at geom center)
       if (trunk_cyl_geom_id_clear_ >= 0) {
         const double* pl = data->geom_xpos + 3 * trunk_cyl_geom_id_clear_;
-        double s_world[3], n_world[3];
-        if (twin->TerrainSurfaceAndNormalWorld(model, data, pl[0], pl[1], s_world, n_world)) {
-          double p_minus_s[3] = {pl[0]-s_world[0], pl[1]-s_world[1], pl[2]-s_world[2]};
-          double sN = mju_dot(n_world, p_minus_s, 3) - trunk_cyl_radius_clear_;
-          constexpr double margin = 0.10;
-          double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
+        bool ok = false;
+        double cp_cyl[3];
+        ok = twin->BoxClosestSurfacePointForGeom(model, data, trunk_cyl_geom_id_clear_, pl, cp_cyl);
+        if (ok) {
+          double d = mju_dist3(pl, cp_cyl);
+          double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
           residual[counter++] = u;
         } else {
           residual[counter++] = 0;
@@ -345,12 +376,12 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       // trunk sphere geom
       if (trunk_sph_geom_id_clear_ >= 0) {
         const double* pl = data->geom_xpos + 3 * trunk_sph_geom_id_clear_;
-        double s_world[3], n_world[3];
-        if (twin->TerrainSurfaceAndNormalWorld(model, data, pl[0], pl[1], s_world, n_world)) {
-          double p_minus_s[3] = {pl[0]-s_world[0], pl[1]-s_world[1], pl[2]-s_world[2]};
-          double sN = mju_dot(n_world, p_minus_s, 3) - trunk_sph_radius_clear_;
-          constexpr double margin = 0.10;
-          double u = std::log1p(mju_exp(beta * (margin - sN))) / beta;
+        bool ok = false;
+        double cp_sph[3];
+        ok = twin->BoxClosestSurfacePointForGeom(model, data, trunk_sph_geom_id_clear_, pl, cp_sph);
+        if (ok) {
+          double d = mju_dist3(pl, cp_sph);
+          double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
           residual[counter++] = u;
         } else {
           residual[counter++] = 0;
@@ -359,9 +390,9 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
         residual[counter++] = 0;
       }
     } else {
-      // Non-mjTwin tasks or missing terrain: append zeros to match dims (head + 4 knees + lidar = 6)
-      mju_zero(residual + counter, 6);
-      counter += 6;
+      // Non-mjTwin tasks or missing terrain: append zeros to match dims (4 knees + 4 shoulders + 2 trunk = 10)
+      mju_zero(residual + counter, 10);
+      counter += 10;
     }
   }
 
@@ -376,7 +407,11 @@ void QuadrupedFlat::TransitionLocked(mjModel* model, mjData* data) {
   if (data->time < residual_.last_transition_time_ ||
       residual_.last_transition_time_ == -1) {
     if (mode != ResidualFn::kModeQuadruped && mode != ResidualFn::kModeBiped) {
-      mode = ResidualFn::kModeQuadruped;  // mode stateful, switch to Quadruped
+      if (dynamic_cast<const MjTwin*>(this)) {
+        mode = ResidualFn::kModeScramble;
+      } else {
+        mode = ResidualFn::kModeQuadruped;  // mode stateful, switch to Quadruped
+      }
     }
     residual_.last_transition_time_ = residual_.phase_start_time_ =
         residual_.phase_start_ = data->time;
@@ -1210,9 +1245,17 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
        mju_addToScl3(query, torso_to_goal, 0.15);
      }
 
-     double ground_height = Ground(model, data, query);
-     double height_target = ground_height + kFootRadius + step[foot];
-     double height_difference = foot_pos[foot][2] - height_target;
+    // baseline ground under current foot position
+    double ground_now = Ground(model, data, foot_pos[foot]);
+    // ground at forward query (Scramble shifts it by 0.15 m toward goal)
+    double ground_future = Ground(model, data, query);
+    double height_target = ground_future + kFootRadius + step[foot];
+    if (current_mode_ == kModeScramble) {
+      if (mju_abs(ground_future - ground_now) > 0.02) {
+        height_target += 0.02;
+      }
+    }
+    double height_difference = foot_pos[foot][2] - height_target;
      if (current_mode_ == kModeScramble) {
       // in Scramble, foot higher than target is not penalized
        height_difference = mju_min(0, height_difference);
@@ -1304,12 +1347,12 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   counter += 4;
 
   // ---------- NormClear (placeholder to match user sensor dims) ----------
-  // If the GO2 model defines "NormClear" (dim=6), append zeros here.
+  // If the GO2 model defines "NormClear" (dim=10), append zeros here.
   {
     int nc_id = CostTermByName(model, "NormClear");
     if (nc_id >= 0) {
-      mju_zero(residual + counter, 6);
-      counter += 6;
+      mju_zero(residual + counter, 10);
+      counter += 10;
     }
   }
 
@@ -1843,53 +1886,43 @@ std::string MjTwin::XmlPath() const {
 std::string MjTwin::Name() const { return "mjTwin"; }
 
 void MjTwin::ResetLocked(const mjModel* model) {
-  // Perform the same identifier setup as QuadrupedFlat
+
   QuadrupedFlat::ResetLocked(model);
 
-  // Mirror QuadrupedPose defaults for weights and parameters
-  // cost terms by name used on demand
-  int position_cost_id = CostTermByName(model, "Position");
-  int effort_cost_id = CostTermByName(model, "Effort");
-  int posture_cost_id = CostTermByName(model, "Posture");
-  int orientation_cost_id = CostTermByName(model, "Orientation");
-  int angmom_cost_id = CostTermByName(model, "Angmom");
-  int upright_cost_id = CostTermByName(model, "Upright");
-  int height_cost_id = CostTermByName(model, "Height");
-  int balance_cost_id = CostTermByName(model, "Balance");
-  int gait_cost_id = CostTermByName(model, "Gait");
-  int footcost_cost_id = CostTermByName(model, "FootCost");
+  int position_cost_id    = CostTermByName(model, "Position");
+  int effort_cost_id      = CostTermByName(model, "Effort");
+  int posture_cost_id     = CostTermByName(model, "Posture");
+  // int orientation_cost_id = CostTermByName(model, "Orientation");
+  // int angmom_cost_id      = CostTermByName(model, "Angmom");
+  // int upright_cost_id     = CostTermByName(model, "Upright");
+  int height_cost_id      = CostTermByName(model, "Height");
+  int balance_cost_id     = CostTermByName(model, "Balance");
+  // int gait_cost_id        = CostTermByName(model, "Gait");
+  int normclear_cost_id    = CostTermByName(model, "NormClear");
 
-  // Note: MjTwin has no Pose residual; align other weights
-  if (upright_cost_id >= 0) weight[upright_cost_id] = 0.195;            // Upright
-  if (height_cost_id >= 0) weight[height_cost_id] = 0.0;                // Height
-  if (position_cost_id >= 0) weight[position_cost_id] = 0.33;           // Position
-  if (gait_cost_id >= 0) weight[gait_cost_id] = 1.0;                    // Gait
-  if (balance_cost_id >= 0) weight[balance_cost_id] = 0.165;            // Balance
-  if (effort_cost_id >= 0) weight[effort_cost_id] = 0.08;               // Effort
-  if (posture_cost_id >= 0) weight[posture_cost_id] = 0.0605;           // Posture
-  if (footcost_cost_id >= 0) weight[footcost_cost_id] = 0.0;            // FootCost
-  if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;      // Orientation
-  if (angmom_cost_id >= 0) weight[angmom_cost_id] = 0.0;                 // Angmom
+  // if (upright_cost_id >= 0)     weight[upright_cost_id] = 0.195;          
+  if (height_cost_id >= 0)      weight[height_cost_id] = 0.0;              
+  if (position_cost_id >= 0)    weight[position_cost_id] = 0.24;           
+  // if (gait_cost_id >= 0)        weight[gait_cost_id] = 1.0;                
+  if (balance_cost_id >= 0)     weight[balance_cost_id] = 0.21;           
+  if (effort_cost_id >= 0)      weight[effort_cost_id] = 0.08;             
+  if (posture_cost_id >= 0)     weight[posture_cost_id] = 0.03;          
+  if (normclear_cost_id >= 0)   weight[normclear_cost_id] = 4.0;           
+  // if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;        
+  // if (angmom_cost_id >= 0)      weight[angmom_cost_id] = 0.0;            
 
-  // Parameters: match QuadrupedPose defaults
-  int gait_id = ParameterIndex(model, "select_Gait");
+  int gait_id        = ParameterIndex(model, "select_Gait");
   int gait_switch_id = ParameterIndex(model, "select_Gait switch");
-  int cadence_id = ParameterIndex(model, "Cadence");
-  int amplitude_id = ParameterIndex(model, "Amplitude");
-  int duty_id = ParameterIndex(model, "Duty ratio");
+  int cadence_id     = ParameterIndex(model, "Cadence");
+  int amplitude_id   = ParameterIndex(model, "Amplitude");
+  int duty_id        = ParameterIndex(model, "Duty ratio");
   int arm_posture_id = ParameterIndex(model, "Arm posture");
 
-  if (gait_id >= 0) {
-    // Trot index is 2: Stand|Walk|Trot|Canter|Gallop
-    parameters[gait_id] = ReinterpretAsDouble(2);
-    // current_gait_ is internal to ResidualFn; Transition will sync it on first call
-  }
-  if (gait_switch_id >= 0) {
-    parameters[gait_switch_id] = ReinterpretAsDouble(0);  // Manual
-  }
-  if (cadence_id >= 0) parameters[cadence_id] = 0.9;      // Trot cadence
-  if (amplitude_id >= 0) parameters[amplitude_id] = 0.03; // Trot amplitude
-  if (duty_id >= 0) parameters[duty_id] = 0.755;          // Trot duty ratio
+  if (gait_id >= 0)        parameters[gait_id]        = ReinterpretAsDouble(2); // trot
+  if (gait_switch_id >= 0) parameters[gait_switch_id] = ReinterpretAsDouble(0); // Manual}
+  if (cadence_id >= 0)     parameters[cadence_id]     = 1.0;            // Trot cadence
+  if (amplitude_id >= 0)   parameters[amplitude_id]   = 0.03;           // Trot amplitude
+  if (duty_id >= 0)        parameters[duty_id]        = 0.8;          // Trot duty ratio
 
   {
     int idx;
@@ -1898,14 +1931,6 @@ void MjTwin::ResetLocked(const mjModel* model) {
     idx = ParameterIndex(model, "Heading");    if (idx >= 0) parameters[idx] = 0.0;
   }
   if (arm_posture_id >= 0) parameters[arm_posture_id] = 0.0;
-
-  // If NormClear is present, enable it for MjTwin with a higher default weight
-  {
-    int nc_id = CostTermByName(model, "NormClear");
-    if (nc_id >= 0) {
-      weight[nc_id] = 4.0;  // default NormClear weight
-    }
-  }
 
   // Cache terrain geom id for later world transforms
   cached_terrain_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain");
@@ -2002,6 +2027,451 @@ void MjTwin::ResetLocked(const mjModel* model) {
         }
       }
     }
+  }
+
+  // Build generic pairs for any mocap body named "box_<geomname>"
+  generic_pairs_.clear();
+  for (int gi = 0; gi < model->ngeom; ++gi) {
+    const char* gname = model->names + model->name_geomadr[gi];
+    if (!gname || !*gname) continue;
+    char boxname[256];
+    std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+    int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+    if (bid >= 0) {
+      int mid = model->body_mocapid[bid];
+      if (mid >= 0) {
+        PairMapEntry e;
+        e.geom_id = gi;
+        e.mocap_id = mid;
+        // derive half height from the mocap's first geom if we can find it later in Transition
+        e.half_h = 0.02;
+        generic_pairs_.push_back(e);
+      }
+    }
+  }
+}
+
+// Update mocap boxes under feet with top faces tangent to local hfield
+void MjTwin::TransitionLocked(mjModel* model, mjData* data) {
+  // Call base to keep existing behavior (gait, goals, etc.)
+  QuadrupedFlat::TransitionLocked(model, data);
+
+  // Lazy init: cache mocap ids and foot geoms on first call
+  if (box_mocap_id_[0] < 0) {
+    const char* box_names[4] = {"box_FL", "box_FR", "box_HL", "box_HR"};
+    const char* foot_geom_names[4] = {"FL", "FR", "HL", "HR"};
+    for (int i = 0; i < 4; ++i) {
+      int bid = mj_name2id(model, mjOBJ_XBODY, box_names[i]);
+      if (bid >= 0) {
+        box_mocap_id_[i] = model->body_mocapid[bid];
+      }
+      foot_geom_id_boxref_[i] = mj_name2id(model, mjOBJ_GEOM, foot_geom_names[i]);
+    }
+    // detect half-height from the first box geom if available
+    int g0 = mj_name2id(model, mjOBJ_GEOM, "box_FL_geom");
+    if (g0 >= 0 && model->geom_type[g0] == mjGEOM_BOX) {
+      box_half_height_ = model->geom_size[3 * g0 + 2];
+    }
+  }
+
+  // Terrain required
+  if (cached_terrain_geom_id_ < 0) {
+    cached_terrain_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain");
+  }
+  if (cached_terrain_geom_id_ < 0) return;
+
+  // For each foot: sample surface and normal, place and orient box
+  for (int i = 0; i < 4; ++i) {
+    int mid = box_mocap_id_[i];
+    int gid = foot_geom_id_boxref_[i];
+    if (mid < 0 || gid < 0) continue;
+
+    // foot world position
+    const double* pf = data->geom_xpos + 3 * gid;
+
+    // sample terrain surface and normal at foot XY
+    double s_world[3], n_world[3];
+    if (!TerrainSurfaceAndNormalWorld(model, data, pf[0], pf[1], s_world, n_world)) {
+      continue;
+    }
+
+    // set box center: on surface minus half-height along normal
+    data->mocap_pos[3 * mid + 0] = s_world[0] - box_half_height_ * n_world[0];
+    data->mocap_pos[3 * mid + 1] = s_world[1] - box_half_height_ * n_world[1];
+    data->mocap_pos[3 * mid + 2] = s_world[2] - box_half_height_ * n_world[2];
+
+    // orient box so its local +Z aligns with normal; choose a stable tangent X
+    // Build orthonormal basis (x, y, z) with z = n_world
+    double z[3] = {n_world[0], n_world[1], n_world[2]};
+    // pick arbitrary up to avoid near-collinearity
+    double a[3] = {0.0, 0.0, 1.0};
+    if (mju_abs(z[2]) > 0.9) a[0] = 1.0, a[1] = 0.0, a[2] = 0.0;
+    double x[3];
+    mju_cross(x, a, z);  // x = a x z
+    double nx = mju_norm3(x);
+    if (nx < 1e-9) {
+      // fallback to global X if degenerate
+      x[0] = 1.0; x[1] = 0.0; x[2] = 0.0;
+    } else {
+      mju_scl3(x, x, 1.0 / nx);
+    }
+    double y[3];
+    mju_cross(y, z, x);  // y = z x x
+
+    // rotation matrix R = [x y z] in columns; convert to quaternion
+    double R[9] = {x[0], y[0], z[0],
+                   x[1], y[1], z[1],
+                   x[2], y[2], z[2]};
+    double q[4];
+    mju_mat2Quat(q, R);
+    data->mocap_quat[4 * mid + 0] = q[0];
+    data->mocap_quat[4 * mid + 1] = q[1];
+    data->mocap_quat[4 * mid + 2] = q[2];
+    data->mocap_quat[4 * mid + 3] = q[3];
+  }
+
+  // Update generic pairs (other robot geoms to their designated boxes)
+  for (auto& e : generic_pairs_) {
+    if (e.geom_id < 0 || e.mocap_id < 0) continue;
+    const double* pg = data->geom_xpos + 3 * e.geom_id;
+    double s_world[3], n_world[3];
+    if (!TerrainSurfaceAndNormalWorld(model, data, pg[0], pg[1], s_world, n_world)) {
+      continue;
+    }
+
+    // lazily fetch half-height from the mocap's attached geom size if unknown
+    if (e.half_h <= 0.0) {
+      // try to locate a geom by name "box_<geomname>_geom"
+      const char* gname = model->names + model->name_geomadr[e.geom_id];
+      char gbox[256];
+      std::snprintf(gbox, sizeof(gbox), "box_%s_geom", gname);
+      int gbox_id = mj_name2id(model, mjOBJ_GEOM, gbox);
+      if (gbox_id >= 0 && model->geom_type[gbox_id] == mjGEOM_BOX) {
+        e.half_h = model->geom_size[3 * gbox_id + 2];
+      } else {
+        e.half_h = box_half_height_;
+      }
+    }
+
+    data->mocap_pos[3 * e.mocap_id + 0] = s_world[0] - e.half_h * n_world[0];
+    data->mocap_pos[3 * e.mocap_id + 1] = s_world[1] - e.half_h * n_world[1];
+    data->mocap_pos[3 * e.mocap_id + 2] = s_world[2] - e.half_h * n_world[2];
+
+    double z[3] = {n_world[0], n_world[1], n_world[2]};
+    double a[3] = {0.0, 0.0, 1.0};
+    if (mju_abs(z[2]) > 0.9) a[0] = 1.0, a[1] = 0.0, a[2] = 0.0;
+    double x[3];
+    mju_cross(x, a, z);
+    double nx = mju_norm3(x);
+    if (nx < 1e-9) { x[0] = 1.0; x[1] = 0.0; x[2] = 0.0; }
+    else { mju_scl3(x, x, 1.0 / nx); }
+    double y[3];
+    mju_cross(y, z, x);
+    double R[9] = {x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]};
+    double q[4];
+    mju_mat2Quat(q, R);
+    mju_copy(data->mocap_quat + 4 * e.mocap_id, q, 4);
+  }
+}
+
+// Compute top surface point and normal for mocap box corresponding to geom_id.
+// We use the mocap body's pose and its first attached box geom's half-height.
+bool MjTwin::BoxTopSurfaceAndNormalForGeom(const mjModel* model, const mjData* data,
+                                           int geom_id,
+                                           double s_world[3], double n_world[3]) const {
+  if (geom_id < 0) return false;
+  const char* gname = model->names + model->name_geomadr[geom_id];
+  if (!gname || !*gname) return false;
+  char boxname[256];
+  std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+  int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+  if (bid < 0) return false;
+  int mid = model->body_mocapid[bid];
+  if (mid < 0) return false;
+
+  // Find the box geom for this mocap, named "box_<gname>_geom" if present
+  double half_h = box_half_height_;
+  char gboxname[256];
+  std::snprintf(gboxname, sizeof(gboxname), "box_%s_geom", gname);
+  int gbox_id = mj_name2id(model, mjOBJ_GEOM, gboxname);
+  if (gbox_id >= 0 && model->geom_type[gbox_id] == mjGEOM_BOX) {
+    half_h = model->geom_size[3 * gbox_id + 2];
+  }
+
+  // Mocap pose
+  const double* p = data->mocap_pos + 3 * mid;
+  const double* q = data->mocap_quat + 4 * mid;
+  double R[9];
+  mju_quat2Mat(R, q);
+
+  // Box local +Z is its top normal in our convention
+  n_world[0] = R[2];
+  n_world[1] = R[5];
+  n_world[2] = R[8];
+  // Top surface point = center + half_h * n
+  s_world[0] = p[0] + half_h * n_world[0];
+  s_world[1] = p[1] + half_h * n_world[1];
+  s_world[2] = p[2] + half_h * n_world[2];
+  return true;
+}
+
+bool MjTwin::BoxTopSurfaceAndNormalForBody(const mjModel* model, const mjData* data,
+                                            int body_id,
+                                            double s_world[3], double n_world[3]) const {
+  if (body_id < 0) return false;
+  // Iterate geoms to find a named collision geom on this body, prefer group 3
+  int best_gi = -1;
+  for (int gi = 0; gi < model->ngeom; ++gi) {
+    if (model->geom_bodyid[gi] != body_id) continue;
+    const char* gname = model->names + model->name_geomadr[gi];
+    if (!gname || !*gname) continue;
+    // Expect a mapping box_<gname>
+    char boxname[256];
+    std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+    int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+    if (bid >= 0) { best_gi = gi; break; }
+  }
+  if (best_gi < 0) return false;
+  return BoxTopSurfaceAndNormalForGeom(model, data, best_gi, s_world, n_world);
+}
+
+// Ray from box center towards p_world; find intersection with oriented box.
+// Box defined by mocap pose (R, center) and half-sizes from box geom.
+static bool RayOBBSurfaceIntersection(const double box_p[3], const double box_R[9],
+                                      const double half[3],
+                                      const double p_world[3],
+                                      double s_world[3]) {
+  // Transform point and ray to box local frame: ray origin at (0,0,0), direction to p_local
+  // p_local = R^T * (p_world - box_p)
+  double pw[3] = {p_world[0] - box_p[0], p_world[1] - box_p[1], p_world[2] - box_p[2]};
+  double RT[9] = {box_R[0], box_R[3], box_R[6],
+                  box_R[1], box_R[4], box_R[7],
+                  box_R[2], box_R[5], box_R[8]};
+  double p_local[3] = {
+    RT[0]*pw[0] + RT[1]*pw[1] + RT[2]*pw[2],
+    RT[3]*pw[0] + RT[4]*pw[1] + RT[5]*pw[2],
+    RT[6]*pw[0] + RT[7]*pw[1] + RT[8]*pw[2]
+  };
+  // Direction from center to point
+  double dir[3] = {p_local[0], p_local[1], p_local[2]};
+  double len = mju_norm3(dir);
+  if (len < 1e-12) return false;
+  mju_scl3(dir, dir, 1.0 / len);
+  // Compute t where ray hits each slab x=±half[0], y=±half[1], z=±half[2]
+  double tmin = 0.0, tmax = 1e12;
+  for (int i = 0; i < 3; ++i) {
+    double d = dir[i];
+    double h = half[i];
+    if (mju_abs(d) < 1e-12) {
+      // Parallel to slabs; must be within bounds to have intersection, but origin at center so ok
+      continue;
+    }
+    double t1 = (-h) / d;
+    double t2 = ( h) / d;
+    if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+  }
+  // First positive intersection along ray direction
+  double t = tmax;
+  if (t < 0) return false;
+  double hit_local[3] = {t * dir[0], t * dir[1], t * dir[2]};
+  // Back to world: s_world = box_p + R * hit_local
+  s_world[0] = box_R[0]*hit_local[0] + box_R[1]*hit_local[1] + box_R[2]*hit_local[2] + box_p[0];
+  s_world[1] = box_R[3]*hit_local[0] + box_R[4]*hit_local[1] + box_R[5]*hit_local[2] + box_p[1];
+  s_world[2] = box_R[6]*hit_local[0] + box_R[7]*hit_local[1] + box_R[8]*hit_local[2] + box_p[2];
+  return true;
+}
+
+// Project point to inside the OBB, then clamp to box, then bring to surface.
+static bool ClosestPointOnOBBSurface(const double box_p[3], const double box_R[9],
+                                     const double half[3],
+                                     const double p_world[3],
+                                     double s_world[3]) {
+  // Local point pl = R^T (p - box_p)
+  double pw[3] = {p_world[0] - box_p[0], p_world[1] - box_p[1], p_world[2] - box_p[2]};
+  double RT[9] = {box_R[0], box_R[3], box_R[6],
+                  box_R[1], box_R[4], box_R[7],
+                  box_R[2], box_R[5], box_R[8]};
+  double pl[3] = {
+    RT[0]*pw[0] + RT[1]*pw[1] + RT[2]*pw[2],
+    RT[3]*pw[0] + RT[4]*pw[1] + RT[5]*pw[2],
+    RT[6]*pw[0] + RT[7]*pw[1] + RT[8]*pw[2]
+  };
+
+  // Clamp to box extents
+  double qc[3];
+  for (int i = 0; i < 3; ++i) {
+    if (pl[i] >  half[i]) qc[i] =  half[i];
+    else if (pl[i] < -half[i]) qc[i] = -half[i];
+    else qc[i] = pl[i];
+  }
+
+  // If inside (|pl[i]| < half[i] for all i), push out along the largest penetration axis
+  bool inside = (mju_abs(pl[0]) <= half[0] && mju_abs(pl[1]) <= half[1] && mju_abs(pl[2]) <= half[2]);
+  if (inside) {
+    // Choose axis with smallest margin to face (closest surface)
+    double dx = half[0] - mju_abs(pl[0]);
+    double dy = half[1] - mju_abs(pl[1]);
+    double dz = half[2] - mju_abs(pl[2]);
+    if (dx <= dy && dx <= dz) qc[0] = (pl[0] >= 0 ? half[0] : -half[0]);
+    else if (dy <= dx && dy <= dz) qc[1] = (pl[1] >= 0 ? half[1] : -half[1]);
+    else qc[2] = (pl[2] >= 0 ? half[2] : -half[2]);
+  }
+
+  // Back to world: s_world = box_p + R * qc
+  s_world[0] = box_R[0]*qc[0] + box_R[1]*qc[1] + box_R[2]*qc[2] + box_p[0];
+  s_world[1] = box_R[3]*qc[0] + box_R[4]*qc[1] + box_R[5]*qc[2] + box_p[1];
+  s_world[2] = box_R[6]*qc[0] + box_R[7]*qc[1] + box_R[8]*qc[2] + box_p[2];
+  return true;
+}
+
+bool MjTwin::BoxClosestSurfacePointForGeom(const mjModel* model, const mjData* data,
+                                           int geom_id, const double p_world[3],
+                                           double s_world[3]) const {
+  if (geom_id < 0) return false;
+  const char* gname = model->names + model->name_geomadr[geom_id];
+  if (!gname || !*gname) return false;
+  char boxname[256];
+  std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+  int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+  if (bid < 0) return false;
+  int mid = model->body_mocapid[bid];
+  if (mid < 0) return false;
+
+  const double* p = data->mocap_pos + 3 * mid;
+  const double* q = data->mocap_quat + 4 * mid;
+  double R[9];
+  mju_quat2Mat(R, q);
+  double half[3] = {box_half_height_, box_half_height_, box_half_height_};
+  char gboxname[256];
+  std::snprintf(gboxname, sizeof(gboxname), "box_%s_geom", gname);
+  int gbox_id = mj_name2id(model, mjOBJ_GEOM, gboxname);
+  if (gbox_id >= 0 && model->geom_type[gbox_id] == mjGEOM_BOX) {
+    half[0] = model->geom_size[3 * gbox_id + 0];
+    half[1] = model->geom_size[3 * gbox_id + 1];
+    half[2] = model->geom_size[3 * gbox_id + 2];
+  }
+  return ClosestPointOnOBBSurface(p, R, half, p_world, s_world);
+}
+
+bool MjTwin::BoxClosestSurfacePointForBody(const mjModel* model, const mjData* data,
+                                           int body_id, const double p_world[3],
+                                           double s_world[3]) const {
+  if (body_id < 0) return false;
+  int best_gi = -1;
+  for (int gi = 0; gi < model->ngeom; ++gi) {
+    if (model->geom_bodyid[gi] != body_id) continue;
+    const char* gname = model->names + model->name_geomadr[gi];
+    if (!gname || !*gname) continue;
+    char boxname[256];
+    std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+    int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+    if (bid >= 0) { best_gi = gi; break; }
+  }
+  if (best_gi < 0) return false;
+  return BoxClosestSurfacePointForGeom(model, data, best_gi, p_world, s_world);
+}
+bool MjTwin::BoxCenterRaySurfacePointForGeom(const mjModel* model, const mjData* data,
+                                             int geom_id, const double p_world[3],
+                                             double s_world[3]) const {
+  if (geom_id < 0) return false;
+  const char* gname = model->names + model->name_geomadr[geom_id];
+  if (!gname || !*gname) return false;
+  char boxname[256];
+  std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+  int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+  if (bid < 0) return false;
+  int mid = model->body_mocapid[bid];
+  if (mid < 0) return false;
+
+  // Mocap pose
+  const double* p = data->mocap_pos + 3 * mid;
+  const double* q = data->mocap_quat + 4 * mid;
+  double R[9];
+  mju_quat2Mat(R, q);
+
+  // Box half-sizes from attached box geom if available
+  double half[3] = {box_half_height_, box_half_height_, box_half_height_};
+  char gboxname[256];
+  std::snprintf(gboxname, sizeof(gboxname), "box_%s_geom", gname);
+  int gbox_id = mj_name2id(model, mjOBJ_GEOM, gboxname);
+  if (gbox_id >= 0 && model->geom_type[gbox_id] == mjGEOM_BOX) {
+    half[0] = model->geom_size[3 * gbox_id + 0];
+    half[1] = model->geom_size[3 * gbox_id + 1];
+    half[2] = model->geom_size[3 * gbox_id + 2];
+  }
+  return RayOBBSurfaceIntersection(p, R, half, p_world, s_world);
+}
+
+bool MjTwin::BoxCenterRaySurfacePointForBody(const mjModel* model, const mjData* data,
+                                             int body_id, const double p_world[3],
+                                             double s_world[3]) const {
+  if (body_id < 0) return false;
+  int best_gi = -1;
+  for (int gi = 0; gi < model->ngeom; ++gi) {
+    if (model->geom_bodyid[gi] != body_id) continue;
+    const char* gname = model->names + model->name_geomadr[gi];
+    if (!gname || !*gname) continue;
+    char boxname[256];
+    std::snprintf(boxname, sizeof(boxname), "box_%s", gname);
+    int bid = mj_name2id(model, mjOBJ_XBODY, boxname);
+    if (bid >= 0) { best_gi = gi; break; }
+  }
+  if (best_gi < 0) return false;
+  return BoxCenterRaySurfacePointForGeom(model, data, best_gi, p_world, s_world);
+}
+
+// Environment-only update: place/rotate mocap boxes without touching mode logic
+void MjTwin::TransitionEnvOnlyLocked(mjModel* model, mjData* data) {
+  // Ensure terrain id cached
+  if (cached_terrain_geom_id_ < 0) {
+    cached_terrain_geom_id_ = mj_name2id(model, mjOBJ_GEOM, "terrain");
+  }
+  if (cached_terrain_geom_id_ < 0) return;
+
+  // Lazy init mocap ids for boxes and foot geoms
+  if (box_mocap_id_[0] < 0) {
+    const char* box_names[4] = {"box_FL", "box_FR", "box_HL", "box_HR"};
+    const char* foot_geom_names[4] = {"FL", "FR", "HL", "HR"};
+    for (int i = 0; i < 4; ++i) {
+      int bid = mj_name2id(model, mjOBJ_XBODY, box_names[i]);
+      if (bid >= 0) box_mocap_id_[i] = model->body_mocapid[bid];
+      foot_geom_id_boxref_[i] = mj_name2id(model, mjOBJ_GEOM, foot_geom_names[i]);
+    }
+    int g0 = mj_name2id(model, mjOBJ_GEOM, "box_FL_geom");
+    if (g0 >= 0 && model->geom_type[g0] == mjGEOM_BOX) {
+      box_half_height_ = model->geom_size[3 * g0 + 2];
+    }
+  }
+
+  // Update per foot
+  for (int i = 0; i < 4; ++i) {
+    int mid = box_mocap_id_[i];
+    int gid = foot_geom_id_boxref_[i];
+    if (mid < 0 || gid < 0) continue;
+    const double* pf = data->geom_xpos + 3 * gid;
+    double s_world[3], n_world[3];
+    if (!TerrainSurfaceAndNormalWorld(model, data, pf[0], pf[1], s_world, n_world)) continue;
+
+    data->mocap_pos[3 * mid + 0] = s_world[0] - box_half_height_ * n_world[0];
+    data->mocap_pos[3 * mid + 1] = s_world[1] - box_half_height_ * n_world[1];
+    data->mocap_pos[3 * mid + 2] = s_world[2] - box_half_height_ * n_world[2];
+
+    double z[3] = {n_world[0], n_world[1], n_world[2]};
+    double a[3] = {0.0, 0.0, 1.0};
+    if (mju_abs(z[2]) > 0.9) a[0] = 1.0, a[1] = 0.0, a[2] = 0.0;
+    double x[3];
+    mju_cross(x, a, z);
+    double nx = mju_norm3(x);
+    if (nx < 1e-9) { x[0] = 1.0; x[1] = 0.0; x[2] = 0.0; }
+    else { mju_scl3(x, x, 1.0 / nx); }
+    double y[3];
+    mju_cross(y, z, x);
+    double R[9] = {x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]};
+    double q[4];
+    mju_mat2Quat(q, R);
+    mju_copy(data->mocap_quat + 4 * mid, q, 4);
   }
 }
 

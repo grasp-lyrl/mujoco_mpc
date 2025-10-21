@@ -144,6 +144,21 @@ void Task::Transition(mjModel* model, mjData* data) {
   InternalResidual()->Update();
 }
 
+void Task::TransitionConst(const mjModel* model, mjData* data) const {
+  // Drop const to reuse existing thread-safe Transition implementation.
+  // This preserves the constness contract for callers while ensuring the
+  // internal mutex and update sequence are respected.
+  const_cast<Task*>(this)->Transition(const_cast<mjModel*>(model), data);
+}
+
+void Task::TransitionEnvOnlyConst(const mjModel* model, mjData* data) const {
+  // Thread-safe wrapper that calls optional environment-only transition hook.
+  Task* self = const_cast<Task*>(this);
+  std::lock_guard<std::mutex> lock(self->mutex_);
+  self->TransitionEnvOnlyLocked(const_cast<mjModel*>(model), data);
+  self->InternalResidual()->Update();
+}
+
 void Task::Reset(const mjModel* model) {
   std::lock_guard<std::mutex> lock(mutex_);
 
