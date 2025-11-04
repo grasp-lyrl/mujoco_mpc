@@ -1889,6 +1889,9 @@ void MjTwin::ResetLocked(const mjModel* model) {
 
   QuadrupedFlat::ResetLocked(model);
 
+  // Default to Scramble mode for mjTwin (Quadruped|Biped|Walk|Scramble|Flip => 3)
+  mode = 3;
+
   int position_cost_id    = CostTermByName(model, "Position");
   int effort_cost_id      = CostTermByName(model, "Effort");
   int posture_cost_id     = CostTermByName(model, "Posture");
