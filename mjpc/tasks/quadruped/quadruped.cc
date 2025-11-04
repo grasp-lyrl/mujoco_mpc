@@ -1944,90 +1944,8 @@ void MjTwin::ResetLocked(const mjModel* model) {
 
 
   
-  // -------- Terrain hfield vertex normals (LOCAL hfield frame) --------
-  terrain_normals_ = {};
-  // Look up terrain hfield by name (matches QuadrupedFlat::ResetLocked)
-  int hid = mj_name2id(model, mjOBJ_HFIELD, "hf133");
-  if (hid >= 0) {
-    int nrow = model->hfield_nrow[hid];
-    int ncol = model->hfield_ncol[hid];
-    int adr  = model->hfield_adr[hid];
-    if (nrow > 0 && ncol > 0) {
-      const double* hsize = model->hfield_size + 4 * hid;  // [sx, sy, sz, ...]
-      double sx = hsize[0], sy = hsize[1], sz = hsize[2];
-      // MuJoCo mapping: indices 0..ncol-1 span 2*sx in X; 0..nrow-1 span 2*sy in Y.
-      // Compute grid spacing; derivatives are in the local geom frame (z-up).
-      double dx = (ncol > 1) ? (2.0 * sx) / (ncol - 1) : (2.0 * sx);
-      double dy = (nrow > 1) ? (2.0 * sy) / (nrow - 1) : (2.0 * sy);
-
-      terrain_normals_.width = ncol;
-      terrain_normals_.height = nrow;
-      terrain_normals_.sx = sx;
-      terrain_normals_.sy = sy;
-      terrain_normals_.sz = sz;
-      terrain_normals_.dx = dx;
-      terrain_normals_.dy = dy;
-      terrain_normals_.inv2dx = (dx > 0) ? (1.0 / (2.0 * dx)) : 0.0;
-      terrain_normals_.inv2dy = (dy > 0) ? (1.0 / (2.0 * dy)) : 0.0;
-      terrain_normals_.hfield_id = hid;
-      terrain_normals_.data.resize(static_cast<size_t>(nrow) * ncol * 3);
-
-      const float* H = model->hfield_data + adr;  // height in [0,1] typically
-      auto heightAt = [&](int r, int c) -> double {
-        r = mjMAX(0, mjMIN(r, nrow - 1));
-        c = mjMAX(0, mjMIN(c, ncol - 1));
-        return static_cast<double>(H[r * ncol + c]) * sz;
-      };
-
-      for (int r = 0; r < nrow; ++r) {
-        for (int c = 0; c < ncol; ++c) {
-          // One-sided at borders, central otherwise
-          double hx;
-          if (c == 0) {
-            double h0 = heightAt(r, 0);
-            double h1 = heightAt(r, mjMIN(1, ncol - 1));
-            hx = (h1 - h0) / dx;
-          } else if (c == ncol - 1) {
-            double hn1 = heightAt(r, ncol - 1);
-            double hn2 = heightAt(r, ncol - 2);
-            hx = (hn1 - hn2) / dx;
-          } else {
-            double hm = heightAt(r, c - 1);
-            double hp = heightAt(r, c + 1);
-            hx = (hp - hm) * terrain_normals_.inv2dx;
-          }
-
-          double hy;
-          if (r == 0) {
-            double h0 = heightAt(0, c);
-            double h1 = heightAt(mjMIN(1, nrow - 1), c);
-            hy = (h1 - h0) / dy;
-          } else if (r == nrow - 1) {
-            double hn1 = heightAt(nrow - 1, c);
-            double hn2 = heightAt(nrow - 2, c);
-            hy = (hn1 - hn2) / dy;
-          } else {
-            double hm2 = heightAt(r - 1, c);
-            double hp2 = heightAt(r + 1, c);
-            hy = (hp2 - hm2) * terrain_normals_.inv2dy;
-          }
-
-          // unnormalized normal; z-up
-          double nx = -hx;
-          double ny = -hy;
-          double nz = 1.0;
-          double invlen = 1.0 / mju_sqrt(nx * nx + ny * ny + nz * nz + 1e-30);
-          nx *= invlen; ny *= invlen; nz *= invlen;
-
-          size_t idx = static_cast<size_t>(r) * ncol + static_cast<size_t>(c);
-          float* out = &terrain_normals_.data[3 * idx];
-          out[0] = static_cast<float>(nx);
-          out[1] = static_cast<float>(ny);
-          out[2] = static_cast<float>(nz);
-        }
-      }
-    }
-  }
+  // -------- Terrain hfield cache (heights + vertex normals) --------
+  RebuildTerrainFromModel(model);
 
   // Build generic pairs for any mocap body named "box_<geomname>"
   generic_pairs_.clear();
@@ -2485,84 +2403,8 @@ void MjTwin::ModifyScene(const mjModel* model, const mjData* data,
                         ? cached_terrain_geom_id_
                         : mj_name2id(model, mjOBJ_GEOM, "terrain");
   int hid = terrain_normals_.hfield_id;
-  // Lazily initialize normals if missing
-  if (hid < 0 || terrain_normals_.data.empty()) {
-    int lazy_hid = mj_name2id(model, mjOBJ_HFIELD, "hf133");
-    if (lazy_hid >= 0) {
-      int nrow = model->hfield_nrow[lazy_hid];
-      int ncol = model->hfield_ncol[lazy_hid];
-      int adr  = model->hfield_adr[lazy_hid];
-      if (nrow > 0 && ncol > 0) {
-        const double* hsize = model->hfield_size + 4 * lazy_hid;
-        double sx = hsize[0], sy = hsize[1], sz = hsize[2];
-        double dx = (ncol > 1) ? (2.0 * sx) / (ncol - 1) : (2.0 * sx);
-        double dy = (nrow > 1) ? (2.0 * sy) / (nrow - 1) : (2.0 * sy);
-
-        // const_cast is safe here: we're filling a cache inside a const method
-        auto* self = const_cast<MjTwin*>(this);
-        self->terrain_normals_.width = ncol;
-        self->terrain_normals_.height = nrow;
-        self->terrain_normals_.sx = sx;
-        self->terrain_normals_.sy = sy;
-        self->terrain_normals_.sz = sz;
-        self->terrain_normals_.dx = dx;
-        self->terrain_normals_.dy = dy;
-        self->terrain_normals_.inv2dx = (dx > 0) ? (1.0 / (2.0 * dx)) : 0.0;
-        self->terrain_normals_.inv2dy = (dy > 0) ? (1.0 / (2.0 * dy)) : 0.0;
-        self->terrain_normals_.hfield_id = lazy_hid;
-        self->terrain_normals_.data.resize(static_cast<size_t>(nrow) * ncol * 3);
-
-        const float* H = model->hfield_data + adr;
-        auto heightAt = [&](int r, int c) -> double {
-          r = mjMAX(0, mjMIN(r, nrow - 1));
-          c = mjMAX(0, mjMIN(c, ncol - 1));
-          return static_cast<double>(H[r * ncol + c]) * sz;
-        };
-        for (int r = 0; r < nrow; ++r) {
-          for (int c = 0; c < ncol; ++c) {
-            double hx;
-            if (c == 0) {
-              double h0 = heightAt(r, 0);
-              double h1 = heightAt(r, mjMIN(1, ncol - 1));
-              hx = (h1 - h0) / dx;
-            } else if (c == ncol - 1) {
-              double hn1 = heightAt(r, ncol - 1);
-              double hn2 = heightAt(r, ncol - 2);
-              hx = (hn1 - hn2) / dx;
-            } else {
-              double hm = heightAt(r, c - 1);
-              double hp = heightAt(r, c + 1);
-              hx = (hp - hm) * self->terrain_normals_.inv2dx;
-            }
-
-            double hy;
-            if (r == 0) {
-              double h0 = heightAt(0, c);
-              double h1 = heightAt(mjMIN(1, nrow - 1), c);
-              hy = (h1 - h0) / dy;
-            } else if (r == nrow - 1) {
-              double hn1 = heightAt(nrow - 1, c);
-              double hn2 = heightAt(nrow - 2, c);
-              hy = (hn1 - hn2) / dy;
-            } else {
-              double hm2 = heightAt(r - 1, c);
-              double hp2 = heightAt(r + 1, c);
-              hy = (hp2 - hm2) * self->terrain_normals_.inv2dy;
-            }
-
-            double nx = -hx, ny = -hy, nz = 1.0;
-            double invlen = 1.0 / mju_sqrt(nx * nx + ny * ny + nz * nz + 1e-30);
-            size_t idx = static_cast<size_t>(r) * ncol + static_cast<size_t>(c);
-            self->terrain_normals_.data[3 * idx + 0] = static_cast<float>(nx * invlen);
-            self->terrain_normals_.data[3 * idx + 1] = static_cast<float>(ny * invlen);
-            self->terrain_normals_.data[3 * idx + 2] = static_cast<float>(nz * invlen);
-          }
-        }
-      }
-    }
-    hid = terrain_normals_.hfield_id;
-  }
-  if (terrain_gid < 0 || hid < 0 || terrain_normals_.data.empty()) return;
+  // If cache is missing, skip visualization (rebuild happens at Reset or hfield update)
+  if (terrain_gid < 0 || hid < 0 || terrain_normals_.data.empty() || terrain_normals_.heights.empty()) return;
 
   // terrain geom pose
   const double* gpos = data->geom_xpos + 3 * terrain_gid;
@@ -2737,6 +2579,95 @@ void MjTwin::ModifyScene(const mjModel* model, const mjData* data,
   }
 }
 
+void MjTwin::RebuildTerrainFromModel(const mjModel* source_model) {
+  terrain_normals_ = {};
+  if (!source_model) return;
+
+  // Resolve hfield by name used in this task
+  int hid = mj_name2id(source_model, mjOBJ_HFIELD, "hf133");
+  if (hid < 0) return;
+
+  int nrow = source_model->hfield_nrow[hid];
+  int ncol = source_model->hfield_ncol[hid];
+  int adr  = source_model->hfield_adr[hid];
+  if (nrow <= 0 || ncol <= 0) return;
+
+  const double* hsize = source_model->hfield_size + 4 * hid;  // [sx, sy, sz, ...]
+  double sx = hsize[0], sy = hsize[1], sz = hsize[2];
+  double dx = (ncol > 1) ? (2.0 * sx) / (ncol - 1) : (2.0 * sx);
+  double dy = (nrow > 1) ? (2.0 * sy) / (nrow - 1) : (2.0 * sy);
+
+  terrain_normals_.width = ncol;
+  terrain_normals_.height = nrow;
+  terrain_normals_.sx = sx;
+  terrain_normals_.sy = sy;
+  terrain_normals_.sz = sz;
+  terrain_normals_.dx = dx;
+  terrain_normals_.dy = dy;
+  terrain_normals_.inv2dx = (dx > 0) ? (1.0 / (2.0 * dx)) : 0.0;
+  terrain_normals_.inv2dy = (dy > 0) ? (1.0 / (2.0 * dy)) : 0.0;
+  terrain_normals_.hfield_id = hid;
+  terrain_normals_.data.resize(static_cast<size_t>(nrow) * ncol * 3);
+  terrain_normals_.heights.resize(static_cast<size_t>(nrow) * ncol);
+
+  // Copy and scale height grid once so planner and physics share the same values
+  const float* Hsrc = source_model->hfield_data + adr;
+  for (int r = 0; r < nrow; ++r) {
+    for (int c = 0; c < ncol; ++c) {
+      size_t idx = static_cast<size_t>(r) * ncol + static_cast<size_t>(c);
+      terrain_normals_.heights[idx] = static_cast<float>(Hsrc[idx] * sz);
+    }
+  }
+
+  auto heightAt = [&](int r, int c) -> double {
+    r = mjMAX(0, mjMIN(r, nrow - 1));
+    c = mjMAX(0, mjMIN(c, ncol - 1));
+    return static_cast<double>(terrain_normals_.heights[static_cast<size_t>(r) * ncol + c]);
+  };
+
+  // Finite-difference normals in local hfield frame
+  for (int r = 0; r < nrow; ++r) {
+    for (int c = 0; c < ncol; ++c) {
+      double hx;
+      if (c == 0) {
+        double h0 = heightAt(r, 0);
+        double h1 = heightAt(r, mjMIN(1, ncol - 1));
+        hx = (h1 - h0) / dx;
+      } else if (c == ncol - 1) {
+        double hn1 = heightAt(r, ncol - 1);
+        double hn2 = heightAt(r, ncol - 2);
+        hx = (hn1 - hn2) / dx;
+      } else {
+        double hm = heightAt(r, c - 1);
+        double hp = heightAt(r, c + 1);
+        hx = (hp - hm) * terrain_normals_.inv2dx;
+      }
+
+      double hy;
+      if (r == 0) {
+        double h0 = heightAt(0, c);
+        double h1 = heightAt(mjMIN(1, nrow - 1), c);
+        hy = (h1 - h0) / dy;
+      } else if (r == nrow - 1) {
+        double hn1 = heightAt(nrow - 1, c);
+        double hn2 = heightAt(nrow - 2, c);
+        hy = (hn1 - hn2) / dy;
+      } else {
+        double hm2 = heightAt(r - 1, c);
+        double hp2 = heightAt(r + 1, c);
+        hy = (hp2 - hm2) * terrain_normals_.inv2dy;
+      }
+
+      double nx = -hx, ny = -hy, nz = 1.0;
+      double invlen = 1.0 / mju_sqrt(nx * nx + ny * ny + nz * nz + 1e-30);
+      size_t idx = static_cast<size_t>(r) * ncol + static_cast<size_t>(c);
+      terrain_normals_.data[3 * idx + 0] = static_cast<float>(nx * invlen);
+      terrain_normals_.data[3 * idx + 1] = static_cast<float>(ny * invlen);
+      terrain_normals_.data[3 * idx + 2] = static_cast<float>(nz * invlen);
+    }
+  }
+}
+
 bool MjTwin::TerrainNormalBilinearLocal(double x_local, double y_local, double n_local[3]) const {
   // Availability
   int W = terrain_normals_.width;
@@ -2828,10 +2759,10 @@ bool MjTwin::TerrainHeightBilinearLocal(const mjModel* model,
                                         double& z_local) const {
   int W = terrain_normals_.width;
   int H = terrain_normals_.height;
-  int hid = terrain_normals_.hfield_id;
-  if (W <= 0 || H <= 0 || hid < 0) return false;
-  int adr = model->hfield_adr[hid];
-  const float* Hdata = model->hfield_data + adr;
+  if (W <= 0 || H <= 0) return false;
+  const float* HdataCached = terrain_normals_.heights.empty()
+                                 ? nullptr
+                                 : terrain_normals_.heights.data();
 
   double u = (x_local + terrain_normals_.sx) / terrain_normals_.dx;
   double v = (y_local + terrain_normals_.sy) / terrain_normals_.dy;
@@ -2843,15 +2774,29 @@ bool MjTwin::TerrainHeightBilinearLocal(const mjModel* model,
   y0 = mjMAX(0, mjMIN(y0, H - 1));
   y1 = mjMAX(0, mjMIN(y1, H - 1));
 
-  double h00 = Hdata[y0 * W + x0];
-  double h10 = Hdata[y0 * W + x1];
-  double h01 = Hdata[y1 * W + x0];
-  double h11 = Hdata[y1 * W + x1];
+  // Prefer cached heights (already scaled by sz). If not available, fall back
+  // to reading from model using stored hfield id.
+  double h00, h10, h01, h11;
+  if (HdataCached) {
+    h00 = HdataCached[y0 * W + x0];
+    h10 = HdataCached[y0 * W + x1];
+    h01 = HdataCached[y1 * W + x0];
+    h11 = HdataCached[y1 * W + x1];
+  } else {
+    int hid = terrain_normals_.hfield_id;
+    if (hid < 0) return false;
+    int adr = model->hfield_adr[hid];
+    const float* HdataModel = model->hfield_data + adr;
+    h00 = HdataModel[y0 * W + x0] * terrain_normals_.sz;
+    h10 = HdataModel[y0 * W + x1] * terrain_normals_.sz;
+    h01 = HdataModel[y1 * W + x0] * terrain_normals_.sz;
+    h11 = HdataModel[y1 * W + x1] * terrain_normals_.sz;
+  }
   double h0 = (1.0 - tx) * h00 + tx * h10;
   double h1 = (1.0 - tx) * h01 + tx * h11;
   double h = (1.0 - ty) * h0 + ty * h1;
 
-  z_local = terrain_normals_.sz * h;
+  z_local = h;
   return true;
 }
 

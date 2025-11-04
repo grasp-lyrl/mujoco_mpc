@@ -53,7 +53,7 @@
     <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="24 24" reflectance="0.05" rgba="0.85 0.92 1.00 1"/>
     <material name="cost_mat" rgba="1 0.5 0 0.4"/>
 
-    <hfield name="hf133" file="../assets/high_res_hfield.png" size="3 3 0.1 2"/>
+    <hfield name="hf133" file="../assets/hfield_4cm.png" size="3 3 0.1 2"/>
     <hfield name="costmap" file="../assets/costmap.png" size="3 3 1 0.01"/>
 
   </asset>
@@ -70,90 +70,14 @@
     <geom name="terrain" pos="1.5 0 0.0" type="hfield" hfield="hf133" material="terrain_mat" contype="0" conaffinity="0" condim="3"/>
     <geom name="terrain_cost" pos="1.5 0 -0.03" type="hfield" hfield="costmap" material="cost_mat" contype="0" conaffinity="0" group="3"/>
 
-    <!-- Support boxes under each foot (10cm x 10cm area, 4cm height) -->
-    <!-- These are mocap bodies; their pose is updated each step to stay under the feet and align with terrain normal. -->
-    <body name="box_FL" mocap="true" pos="0 0 0">
-      <geom name="box_FL_geom" type="box" size="0.022 0.022 0.02" rgba="0.2 0.8 0.2 1" group="5" contype="0" conaffinity="2"/>
-    </body>
-    <body name="box_FR" mocap="true" pos="0 0 0">
-      <geom name="box_FR_geom" type="box" size="0.022 0.022 0.02" rgba="0.2 0.8 0.2 1" group="5" contype="0" conaffinity="4"/>
-    </body>
-    <body name="box_HL" mocap="true" pos="0 0 0">
-      <geom name="box_HL_geom" type="box" size="0.022 0.022 0.02" rgba="0.2 0.8 0.2 1" group="5" contype="0" conaffinity="8"/>
-    </body>
-    <body name="box_HR" mocap="true" pos="0 0 0">
-      <geom name="box_HR_geom" type="box" size="0.022 0.022 0.02" rgba="0.2 0.8 0.2 1" group="5" contype="0" conaffinity="16"/>
-    </body>
-
-    <!-- Additional boxes mapped 1:1 to robot collision geoms (contype bits must match) -->
-    <body name="box_trunk_box_coll" mocap="true" pos="0 0 0">
-      <geom name="box_trunk_box_coll_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="32"/>
-    </body>
-    <body name="box_head_cyl" mocap="true" pos="0 0 0">
-      <geom name="box_head_cyl_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="64"/>
-    </body>
-    <body name="box_lidar_sph" mocap="true" pos="0 0 0">
-      <geom name="box_lidar_sph_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="128"/>
-    </body>
-    <body name="box_FL_hip_cyl" mocap="true" pos="0 0 0">
-      <geom name="box_FL_hip_cyl_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="256"/>
-    </body>
-    <body name="box_FL_thigh_box" mocap="true" pos="0 0 0">
-      <geom name="box_FL_thigh_box_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="512"/>
-    </body>
-    <body name="box_FL_calf_cyl1" mocap="true" pos="0 0 0">
-      <geom name="box_FL_calf_cyl1_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="1024"/>
-    </body>
-    <body name="box_FL_calf_cyl2" mocap="true" pos="0 0 0">
-      <geom name="box_FL_calf_cyl2_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="2048"/>
-    </body>
-    <body name="box_FR_hip_cyl" mocap="true" pos="0 0 0">
-      <geom name="box_FR_hip_cyl_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="4096"/>
-    </body>
-    <body name="box_FR_thigh_box" mocap="true" pos="0 0 0">
-      <geom name="box_FR_thigh_box_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="8192"/>
-    </body>
-    <body name="box_FR_calf_cyl1" mocap="true" pos="0 0 0">
-      <geom name="box_FR_calf_cyl1_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="16384"/>
-    </body>
-    <body name="box_FR_calf_cyl2" mocap="true" pos="0 0 0">
-      <geom name="box_FR_calf_cyl2_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="32768"/>
-    </body>
-    <body name="box_HL_hip_cyl" mocap="true" pos="0 0 0">
-      <geom name="box_HL_hip_cyl_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="65536"/>
-    </body>
-    <body name="box_HL_thigh_box" mocap="true" pos="0 0 0">
-      <geom name="box_HL_thigh_box_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="131072"/>
-    </body>
-    <body name="box_HL_calf_cyl1" mocap="true" pos="0 0 0">
-      <geom name="box_HL_calf_cyl1_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="262144"/>
-    </body>
-    <body name="box_HL_calf_cyl2" mocap="true" pos="0 0 0">
-      <geom name="box_HL_calf_cyl2_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="524288"/>
-    </body>
-    <body name="box_HR_hip_cyl" mocap="true" pos="0 0 0">
-      <geom name="box_HR_hip_cyl_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="1048576"/>
-    </body>
-    <body name="box_HR_thigh_box" mocap="true" pos="0 0 0">
-      <geom name="box_HR_thigh_box_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="2097152"/>
-    </body>
-    <body name="box_HR_calf_cyl1" mocap="true" pos="0 0 0">
-      <geom name="box_HR_calf_cyl1_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="4194304"/>
-    </body>
-    <body name="box_HR_calf_cyl2" mocap="true" pos="0 0 0">
-      <geom name="box_HR_calf_cyl2_geom" type="box" size="0.022 0.022 0.02" rgba="1 0 0 1" group="4" contype="0" conaffinity="8388608"/>
-    </body>
-
-    <!-- <body name="goal" mocap="true" pos=".3 0 0.26"> -->
     <body name="goal" mocap="true" pos="2.5 0 0.35">
       <geom size="0.05" contype="0" conaffinity="0" rgba="0.678 0.847 0.902 0.7" group="2"/>
     </body>
   </worldbody>
 
-  <!-- go2 model -->
   <include file="go2.xml" />
+  <include file="collisions.xml" />
 
-  <!-- original pose -->
   <keyframe>
     <key name="home" qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"
       ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>

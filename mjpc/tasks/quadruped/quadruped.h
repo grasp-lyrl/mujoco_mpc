@@ -319,6 +319,11 @@ class MjTwin : public QuadrupedFlat {
   void ModifyScene(const mjModel* model, const mjData* data,
                    mjvScene* scene) const override;
 
+  // Recompute and cache terrain heights and normals from a source model's
+  // hfield (e.g., physics model), so both physics and planner share the same
+  // sampled surface and normals even if planner's mjModel is not updated.
+  void RebuildTerrainFromModel(const mjModel* source_model);
+
   // O(1) accessor for precomputed terrain hfield vertex normals
   // Arguments: (col, row) with col in [0, width), row in [0, height)
   const float* TerrainNormalAt(int col, int row) const {
@@ -392,7 +397,8 @@ class MjTwin : public QuadrupedFlat {
     double dx = 0.0, dy = 0.0;
     double inv2dx = 0.0, inv2dy = 0.0;
     int hfield_id = -1;  // source hfield id in model
-    std::vector<float> data;  // row-major, 3 floats per vertex (nx, ny, nz)
+    std::vector<float> data;     // row-major, 3 floats per vertex (nx, ny, nz)
+    std::vector<float> heights;  // row-major, width*height (scaled by sz)
   } terrain_normals_;
 
   // Cached id for terrain geom (name: "terrain")

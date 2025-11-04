@@ -32,6 +32,7 @@
 #include <platform_ui_adapter.h>
 #include "mjpc/array_safety.h"
 #include "mjpc/agent.h"
+#include "mjpc/tasks/quadruped/quadruped.h"
 #include "mjpc/utilities.h"
 
 // When launched via an App Bundle on macOS, the working directory is the path
@@ -2104,6 +2105,13 @@ void Simulate::UpdateHField(int hfieldid) {
   }
   hfield_upload_ = hfieldid;
   cond_upload_.wait(lock, [this]() { return hfield_upload_ == -1; });
+  // Rebuild terrain cache (heights + normals) from the physics model so planner and
+  // renderer see updated boxes immediately.
+  if (agent && agent->ActiveTask()) {
+    if (auto* twin = dynamic_cast<mjpc::MjTwin*>(agent->ActiveTask())) {
+      twin->RebuildTerrainFromModel(m);
+    }
+  }
 }
 
 void Simulate::UpdateMesh(int meshid) {
