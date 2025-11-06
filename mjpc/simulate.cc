@@ -2107,11 +2107,12 @@ void Simulate::UpdateHField(int hfieldid) {
   cond_upload_.wait(lock, [this]() { return hfield_upload_ == -1; });
   // Rebuild terrain cache (heights + normals) from the physics model so planner and
   // renderer see updated boxes immediately.
-  if (agent && agent->ActiveTask()) {
-    if (auto* twin = dynamic_cast<mjpc::MjTwin*>(agent->ActiveTask())) {
-      twin->RebuildTerrainFromModel(m);
-    }
-  }
+  
+  // if (agent && agent->ActiveTask()) {
+  //   if (auto* twin = dynamic_cast<mjpc::MjTwin*>(agent->ActiveTask())) {
+  //     twin->RebuildTerrainFromModel(m);
+  //   }
+  // }
 }
 
 void Simulate::UpdateMesh(int meshid) {
