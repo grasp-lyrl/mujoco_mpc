@@ -17,6 +17,7 @@
 #include <string>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
@@ -120,6 +121,13 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
   A1Gait gait = GetGait();
   double step[kNumFoot];
   FootStep(step, GetPhase(data->time), gait);
+  double lidar_ground = 0.0;
+  bool have_lidar_ground = false;
+  if (current_mode_ == kModeScramble && trunk_sph_geom_id_clear_ >= 0) {
+    const double* lidar_pos = data->geom_xpos + 3 * trunk_sph_geom_id_clear_;
+    lidar_ground = Ground(model, data, lidar_pos);
+    have_lidar_ground = true;
+  }
   for (A1Foot foot : kFootAll) {
     if (is_biped) {
       // ignore "hands" in biped mode
@@ -132,6 +140,8 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       }
     }
     double query[3] = {foot_pos[foot][0], foot_pos[foot][1], foot_pos[foot][2]};
+    double forward_dir[3] = {0.0, 0.0, 0.0};
+    bool have_forward_dir = false;
 
     if (current_mode_ == kModeScramble) {
       double torso_to_goal[3];
@@ -141,6 +151,8 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       mju_sub3(torso_to_goal, goal, foot_pos[foot]);
       torso_to_goal[2] = 0;
       mju_normalize3(torso_to_goal);
+      mju_copy3(forward_dir, torso_to_goal);
+      have_forward_dir = true;
       mju_addToScl3(query, torso_to_goal, 0.15);
     }
 
@@ -151,8 +163,27 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
     double height_target = ground_future + kFootRadius + step[foot];
     // If terrain changes > 2 cm between now and 15 cm forward, add extra 2 cm
     if (current_mode_ == kModeScramble) {
-      if (mju_abs(ground_future - ground_now) > 0.02) {
+      double terrain_step = ground_future - ground_now;
+      constexpr double kFootholdHeightThreshold = 0.02;
+      if (step[foot] > 0.0 && terrain_step > kFootholdHeightThreshold && have_forward_dir) {
+        double foothold_target[3] = {query[0], query[1], ground_future + kFootRadius};
+        if (have_lidar_ground && (foot == kFootFL || foot == kFootFR)) {
+          double min_height = lidar_ground + kFootRadius;
+          if (foothold_target[2] < min_height) {
+            foothold_target[2] = min_height;
+          }
+        }
+        residual[counter++] = mju_dist3(foot_pos[foot], foothold_target);
+        continue;
+      }
+      if (mju_abs(terrain_step) > 0.02) {
         height_target += 0.02;
+      }
+      if (have_lidar_ground && (foot == kFootFL || foot == kFootFR)) {
+        double min_height = lidar_ground + kFootRadius;
+        if (height_target < min_height) {
+          height_target = min_height;
+        }
       }
     }
     double height_difference = foot_pos[foot][2] - height_target;
@@ -172,6 +203,33 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
   residual[counter++] = capture_point[0] - avg_foot_pos[0];
   residual[counter++] = capture_point[1] - avg_foot_pos[1];
 
+  // ---------- Velocity towards goal ----------
+  if (velocity_cost_id_ >= 0) {
+    auto twin = dynamic_cast<const MjTwin*>(task_);
+    if (twin) {
+      constexpr double kVelocityActivationDistance = 0.2;  // meters
+      double head_goal_dist = mju_dist3(head, goal_pos);
+      if (head_goal_dist > kVelocityActivationDistance) {
+        double target_speed = 0.0;
+        if (speed_param_id_ >= 0) {
+          target_speed = parameters_[speed_param_id_];
+        }
+        double dir[2] = {goal_pos[0] - torso_pos[0], goal_pos[1] - torso_pos[1]};
+        double dir_norm = std::hypot(dir[0], dir[1]);
+        double forward_speed = 0.0;
+        if (dir_norm > 1e-6) {
+          dir[0] /= dir_norm;
+          dir[1] /= dir_norm;
+          forward_speed = dir[0] * comvel[0] + dir[1] * comvel[1];
+        }
+        residual[counter++] = forward_speed - target_speed;
+      } else {
+        residual[counter++] = 0;
+      }
+    } else {
+      residual[counter++] = 0;
+    }
+  }
 
   // ---------- Effort ----------
   mju_scl(residual + counter, data->actuator_force, 2e-2, model->nu);
@@ -314,43 +372,77 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
     // Only compute for mjTwin; otherwise emit zeros (match FootCost pattern)
     auto twin = dynamic_cast<const MjTwin*>(task_);
     if (twin && terrain_geom_id_ >= 0) {
-      constexpr double beta = 40.0;           // softer hinge for smoother gradients
-      constexpr double margin = 0.01;         // require >= 3 cm clearance
-      // knees: FL, FR, HL, HR (immaterial spheres centered at calf COM)
+      constexpr double beta = 120.0;            // sharp hinge for strong gradients
+      constexpr double ground_margin = 0.05;    // require >= 2 cm clearance from ground
+      constexpr double forward_margin = 0.30;   // head/lidar should not exceed front feet by more than 35 cm
+      constexpr double height_gap_threshold = 0.02;  // feet considered down if >2 cm below head/lidar height
+      auto ClearancePenalty = [&](double clearance) {
+        return std::log1p(std::exp(beta * (ground_margin - clearance))) / beta;
+      };
+
+      const double* base_xmat = torso_body_id_ >= 0 ? data->xmat + 9 * torso_body_id_ : nullptr;
+      const double* base_pos = torso_body_id_ >= 0 ? data->xpos + 3 * torso_body_id_ : nullptr;
+      double base_x[3] = {0, 0, 0};
+      if (base_xmat) {
+        base_x[0] = base_xmat[0];
+        base_x[1] = base_xmat[3];
+        base_x[2] = base_xmat[6];
+      }
+
+      double head_proj = -std::numeric_limits<double>::infinity();
+      double head_height = -std::numeric_limits<double>::infinity();
+      if (base_xmat && base_pos && trunk_cyl_geom_id_clear_ >= 0) {
+        const double* head_pos = data->geom_xpos + 3 * trunk_cyl_geom_id_clear_;
+        double delta[3];
+        mju_sub3(delta, head_pos, base_pos);
+        head_proj = mju_dot3(delta, base_x);
+        head_height = head_pos[2];
+      }
+      double lidar_proj = -std::numeric_limits<double>::infinity();
+      double lidar_height = -std::numeric_limits<double>::infinity();
+      if (base_xmat && base_pos && trunk_sph_geom_id_clear_ >= 0) {
+        const double* lidar_pos = data->geom_xpos + 3 * trunk_sph_geom_id_clear_;
+        double delta[3];
+        mju_sub3(delta, lidar_pos, base_pos);
+        lidar_proj = mju_dot3(delta, base_x);
+        lidar_height = lidar_pos[2];
+      }
+
+      double front_proj_max = -std::numeric_limits<double>::infinity();
+      double front_proj_min = std::numeric_limits<double>::infinity();
+      double front_height_max = -std::numeric_limits<double>::infinity();
+      bool have_front_support = false;
+
+      // knees: FL, FR, HL, HR (knee joints)
       for (int k = 0; k < 4; ++k) {
-        int bid = knee_body_id_clear_[k];
-        if (bid >= 0) {
-          const double* pk = data->xpos + 3 * bid;
-          bool ok = false;
-          // Mesh-to-box distance via closest point on OBB surface
-          double cp[3];
-          ok = twin->BoxClosestSurfacePointForBody(model, data, bid, pk, cp);
-          if (ok) {
-            double d = mju_dist3(pk, cp);
-            double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
-            residual[counter++] = u;
-          } else {
-            residual[counter++] = 0;
+        int jid = knee_joint_id_clear_[k];
+        if (jid >= 0) {
+          const double* anchor = data->xanchor + 3 * jid;
+          double clearance = anchor[2] - Ground(model, data, anchor) - knee_radius_clear_;
+          double penalty = ClearancePenalty(clearance);
+          if ((k == 0 || k == 1) && base_xmat && base_pos) {
+            double delta[3];
+            mju_sub3(delta, anchor, base_pos);
+            double foot_proj = mju_dot3(delta, base_x);
+            if (foot_proj > front_proj_max) front_proj_max = foot_proj;
+            if (foot_proj < front_proj_min) front_proj_min = foot_proj;
+            if (anchor[2] > front_height_max) front_height_max = anchor[2];
+            have_front_support = true;
           }
+          residual[counter++] = penalty;
         } else {
           residual[counter++] = 0;
         }
       }  // end for k
 
-      // shoulders: FL, FR, HL, HR (shoulder bodies)
+      // thigh joints (hip joints)
       for (int k = 0; k < 4; ++k) {
-        int bid = shoulder_body_id_[k];
-        if (bid >= 0) {
-          const double* ps = data->xpos + 3 * bid;
-          double cp[3];
-          bool ok = twin->BoxClosestSurfacePointForBody(model, data, bid, ps, cp);
-          if (ok) {
-            double d = mju_dist3(ps, cp);
-            double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
-            residual[counter++] = u;
-          } else {
-            residual[counter++] = 0;
-          }
+        int jid = thigh_joint_id_clear_[k];
+        if (jid >= 0) {
+          const double* anchor = data->xanchor + 3 * jid;
+          double clearance = anchor[2] - Ground(model, data, anchor) - thigh_radius_clear_;
+          double penalty = ClearancePenalty(clearance);
+          residual[counter++] = penalty;
         } else {
           residual[counter++] = 0;
         }
@@ -359,33 +451,51 @@ void QuadrupedFlat::ResidualFn::Residual(const mjModel* model,
       // trunk cylinder geom (treated as sphere with radius=size[0] at geom center)
       if (trunk_cyl_geom_id_clear_ >= 0) {
         const double* pl = data->geom_xpos + 3 * trunk_cyl_geom_id_clear_;
-        bool ok = false;
-        double cp_cyl[3];
-        ok = twin->BoxClosestSurfacePointForGeom(model, data, trunk_cyl_geom_id_clear_, pl, cp_cyl);
-        if (ok) {
-          double d = mju_dist3(pl, cp_cyl);
-          double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
-          residual[counter++] = u;
-        } else {
-          residual[counter++] = 0;
+        double clearance = pl[2] - Ground(model, data, pl) - trunk_cyl_radius_clear_;
+        double penalty = ClearancePenalty(clearance);
+        if (have_front_support && base_xmat && base_pos &&
+            head_proj > -std::numeric_limits<double>::infinity() &&
+            front_proj_max > -std::numeric_limits<double>::infinity() &&
+            front_height_max > -std::numeric_limits<double>::infinity()) {
+          double forward_excess = head_proj - front_proj_max - forward_margin;
+          double height_gap = head_height - front_height_max;
+          if (forward_excess > 0.0 && height_gap > height_gap_threshold) {
+            penalty += forward_excess;
+          }
+          if (front_proj_min < std::numeric_limits<double>::infinity()) {
+            double backward_excess = head_proj - front_proj_min - forward_margin;
+            if (backward_excess > 0.0) {
+              penalty += backward_excess;
+            }
+          }
         }
+        residual[counter++] = penalty;
       } else {
         residual[counter++] = 0;
       }
 
-      // trunk sphere geom
+      // trunk sphere geom (lidar): enforce vertical clearance over terrain
       if (trunk_sph_geom_id_clear_ >= 0) {
         const double* pl = data->geom_xpos + 3 * trunk_sph_geom_id_clear_;
-        bool ok = false;
-        double cp_sph[3];
-        ok = twin->BoxClosestSurfacePointForGeom(model, data, trunk_sph_geom_id_clear_, pl, cp_sph);
-        if (ok) {
-          double d = mju_dist3(pl, cp_sph);
-          double u = std::log1p(mju_exp(beta * (margin - d))) / beta;
-          residual[counter++] = u;
-        } else {
-          residual[counter++] = 0;
+        double clearance = pl[2] - Ground(model, data, pl) - trunk_sph_radius_clear_;
+        double penalty = ClearancePenalty(clearance);
+        if (have_front_support && base_xmat && base_pos &&
+            lidar_proj > -std::numeric_limits<double>::infinity() &&
+            front_proj_max > -std::numeric_limits<double>::infinity() &&
+            front_height_max > -std::numeric_limits<double>::infinity()) {
+          double forward_excess = lidar_proj - front_proj_max - forward_margin;
+          double height_gap = lidar_height - front_height_max;
+          if (forward_excess > 0.0 && height_gap > height_gap_threshold) {
+            penalty += forward_excess;
+          }
+          if (front_proj_min < std::numeric_limits<double>::infinity()) {
+            double backward_excess = lidar_proj - front_proj_min - forward_margin;
+            if (backward_excess > 0.0) {
+              penalty += backward_excess;
+            }
+          }
         }
+        residual[counter++] = penalty;
       } else {
         residual[counter++] = 0;
       }
@@ -486,7 +596,7 @@ void QuadrupedFlat::TransitionLocked(mjModel* model, mjData* data) {
   double* goal_pos = data->mocap_pos + 3*residual_.goal_mocap_id_;
   if (mode == ResidualFn::kModeWalk) {
     double angvel = parameters[ParameterIndex(model, "Walk turn")];
-    double speed = parameters[ParameterIndex(model, "Walk speed")];
+    double speed = parameters[ParameterIndex(model, "Deprecated")];
 
     // current torso direction
     double* torso_xmat = data->xmat + 9*residual_.torso_body_id_;
@@ -711,7 +821,8 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   residual_.balance_cost_id_ = CostTermByName(model, "Balance");
   residual_.upright_cost_id_ = CostTermByName(model, "Upright");
   residual_.height_cost_id_ = CostTermByName(model, "Height");
-
+  residual_.speed_param_id_ = ParameterIndex(model, "Speed");
+  residual_.velocity_cost_id_ = CostTermByName(model, "Velocity");
   // optional high-res FootCost term (only present in mjTwin)
   residual_.foot_cost_id_ = CostTermByName(model, "FootCost");
 
@@ -719,8 +830,15 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   residual_.clear_cost_id_ = CostTermByName(model, "NormClear");
   // default: zero weight unless explicitly enabled (avoid affecting other tasks)
   if (residual_.clear_cost_id_ >= 0) {
-    // set weight to 0 for all tasks by default; will set non-zero in MjTwin Reset
-    weight[residual_.clear_cost_id_] = 0.0;
+    // keep disabled for non-mjTwin tasks; mjTwin controls weight via GUI
+    if (!dynamic_cast<MjTwin*>(this)) {
+      weight[residual_.clear_cost_id_] = 0.0;
+    }
+  }
+  if (residual_.velocity_cost_id_ >= 0) {
+    if (!dynamic_cast<MjTwin*>(this)) {
+      weight[residual_.velocity_cost_id_] = 0.0;
+    }
   }
 
   // Initialize current gait from parameter selection to avoid an immediate
@@ -778,6 +896,7 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
 
   // radii for clearance cost (match visualization defaults); override head with collision sphere if found
   residual_.knee_radius_clear_ = 0.03;
+  residual_.thigh_radius_clear_ = 0.03;
   residual_.head_radius_clear_ = 0.03;
   int trunk_bid = mj_name2id(model, mjOBJ_BODY, "trunk");
   if (trunk_bid >= 0) {
@@ -878,6 +997,34 @@ void QuadrupedFlat::ResetLocked(const mjModel* model) {
   residual_.land_rot_acc_ =
       2 * (residual_.flight_rot_vel_ * residual_.land_time_ - mjPI / 4) /
       (residual_.land_time_ * residual_.land_time_);
+
+  // clearance references for NormClear
+  residual_.head_site_id_clear_ = mj_name2id(model, mjOBJ_SITE, "head");
+  residual_.trunk_cyl_geom_id_clear_ = mj_name2id(model, mjOBJ_GEOM, "head_cyl");
+  if (residual_.trunk_cyl_geom_id_clear_ >= 0) {
+    residual_.trunk_cyl_radius_clear_ = model->geom_size[3 * residual_.trunk_cyl_geom_id_clear_ + 0];
+  }
+  residual_.trunk_sph_geom_id_clear_ = mj_name2id(model, mjOBJ_GEOM, "lidar_sph");
+  if (residual_.trunk_sph_geom_id_clear_ >= 0) {
+    residual_.trunk_sph_radius_clear_ = model->geom_size[3 * residual_.trunk_sph_geom_id_clear_ + 0];
+  }
+  residual_.knee_body_id_clear_[0] = mj_name2id(model, mjOBJ_BODY, "FL_calf");
+  residual_.knee_body_id_clear_[1] = mj_name2id(model, mjOBJ_BODY, "FR_calf");
+  residual_.knee_body_id_clear_[2] = mj_name2id(model, mjOBJ_BODY, "HL_calf");
+  residual_.knee_body_id_clear_[3] = mj_name2id(model, mjOBJ_BODY, "HR_calf");
+  residual_.knee_joint_id_clear_[0] = mj_name2id(model, mjOBJ_JOINT, "FL_calf_joint");
+  residual_.knee_joint_id_clear_[1] = mj_name2id(model, mjOBJ_JOINT, "FR_calf_joint");
+  residual_.knee_joint_id_clear_[2] = mj_name2id(model, mjOBJ_JOINT, "HL_calf_joint");
+  residual_.knee_joint_id_clear_[3] = mj_name2id(model, mjOBJ_JOINT, "HR_calf_joint");
+  residual_.thigh_joint_id_clear_[0] = mj_name2id(model, mjOBJ_JOINT, "FL_thigh_joint");
+  residual_.thigh_joint_id_clear_[1] = mj_name2id(model, mjOBJ_JOINT, "FR_thigh_joint");
+  residual_.thigh_joint_id_clear_[2] = mj_name2id(model, mjOBJ_JOINT, "HL_thigh_joint");
+  residual_.thigh_joint_id_clear_[3] = mj_name2id(model, mjOBJ_JOINT, "HR_thigh_joint");
+
+  // radii for clearance cost (match visualization defaults); override head with collision sphere if found
+  residual_.knee_radius_clear_ = 0.03;
+  residual_.thigh_radius_clear_ = 0.03;
+  residual_.head_radius_clear_ = 0.03;
 }
 
 // compute average foot position, depending on mode
@@ -1233,6 +1380,8 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
        }
      }
      double query[3] = {foot_pos[foot][0], foot_pos[foot][1], foot_pos[foot][2]};
+     double forward_dir[3] = {0.0, 0.0, 0.0};
+     bool have_forward_dir = false;
 
      if (current_mode_ == kModeScramble) {
        double torso_to_goal[3];
@@ -1242,6 +1391,8 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
        mju_sub3(torso_to_goal, goal, foot_pos[foot]);
        torso_to_goal[2] = 0;
        mju_normalize3(torso_to_goal);
+       mju_copy3(forward_dir, torso_to_goal);
+       have_forward_dir = true;
        mju_addToScl3(query, torso_to_goal, 0.15);
      }
 
@@ -1251,8 +1402,17 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
     double ground_future = Ground(model, data, query);
     double height_target = ground_future + kFootRadius + step[foot];
     if (current_mode_ == kModeScramble) {
+      double terrain_step = ground_future - ground_now;
       if (mju_abs(ground_future - ground_now) > 0.02) {
         height_target += 0.02;
+      }
+      if (step[foot] > 0.0 && terrain_step > 0.0 && have_forward_dir) {
+        double forward_gap = (query[0] - foot_pos[foot][0]) * forward_dir[0] +
+                             (query[1] - foot_pos[foot][1]) * forward_dir[1];
+        forward_gap = mju_max(0.0, forward_gap);
+        double reach_scale = mju_clip(terrain_step / 0.05, 0.0, 1.0);
+        constexpr double kFootholdReachGain = 1.0;
+        height_target += kFootholdReachGain * reach_scale * forward_gap;
       }
     }
     double height_difference = foot_pos[foot][2] - height_target;
@@ -1271,6 +1431,34 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
    mju_addScl3(capture_point, compos, comvel, fall_time);
    residual[counter++] = capture_point[0] - avg_foot_pos[0];
    residual[counter++] = capture_point[1] - avg_foot_pos[1];
+
+  // ---------- Velocity towards goal ----------
+  if (velocity_cost_id_ >= 0) {
+    auto twin = dynamic_cast<const MjTwin*>(task_);
+    if (twin) {
+      constexpr double kVelocityActivationDistance = 0.2;  // meters
+      double head_goal_dist = mju_dist3(head, goal_pos);
+      if (head_goal_dist > kVelocityActivationDistance) {
+        double target_speed = 0.0;
+        if (speed_param_id_ >= 0) {
+          target_speed = parameters_[speed_param_id_];
+        }
+        double dir[2] = {goal_pos[0] - torso_pos[0], goal_pos[1] - torso_pos[1]};
+        double dir_norm = std::hypot(dir[0], dir[1]);
+        double forward_speed = 0.0;
+        if (dir_norm > 1e-6) {
+          dir[0] /= dir_norm;
+          dir[1] /= dir_norm;
+          forward_speed = dir[0] * comvel[0] + dir[1] * comvel[1];
+        }
+        residual[counter++] = forward_speed - target_speed;
+      } else {
+        residual[counter++] = 0;
+      }
+    } else {
+      residual[counter++] = 0;
+    }
+  }
 
 
    // ---------- Effort ----------
@@ -1441,7 +1629,7 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   double* goal_pos = data->mocap_pos + 3*residual_.goal_mocap_id_;
   if (mode == ResidualFn::kModeWalk) {
     double angvel = parameters[ParameterIndex(model, "Walk turn")];
-    double speed = parameters[ParameterIndex(model, "Walk speed")];
+    double speed = parameters[ParameterIndex(model, "Deprecated")];
 
     // current torso direction
     double* torso_xmat = data->xmat + 9*residual_.torso_body_id_;
@@ -1560,7 +1748,9 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
    residual_.arm_posture_param_id_ = ParameterIndex(model, "Arm posture");
    residual_.balance_cost_id_ = CostTermByName(model, "Balance");
    residual_.upright_cost_id_ = CostTermByName(model, "Upright");
-   residual_.height_cost_id_ = CostTermByName(model, "Height");
+  residual_.height_cost_id_ = CostTermByName(model, "Height");
+  residual_.speed_param_id_ = ParameterIndex(model, "Speed");
+  residual_.velocity_cost_id_ = CostTermByName(model, "Velocity");
   // Pose residual and selection
   residual_.pose_cost_id_ = CostTermByName(model, "Pose");
   residual_.pose_select_param_id_ = ParameterIndex(model, "select_Pose");
@@ -1577,6 +1767,7 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   if (residual_.height_cost_id_ >= 0) weight[residual_.height_cost_id_] = 1.0;    // Height
   if (position_cost_id >= 0) weight[position_cost_id] = 0.2;                      // Position
   if (residual_.balance_cost_id_ >= 0) weight[residual_.balance_cost_id_] = 0.2;  // Balance
+  if (residual_.velocity_cost_id_ >= 0) weight[residual_.velocity_cost_id_] = 0.0; // Velocity
   if (effort_cost_id >= 0) weight[effort_cost_id] = 0.08;                         // Effort
   if (posture_cost_id >= 0) weight[posture_cost_id] = 0.02;                       // Posture
   if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;                 // Orientation
@@ -1599,7 +1790,7 @@ void QuadrupedPose::ResidualFn::Residual(const mjModel* model,
   // walk speed/turn, heading, arm posture
   {
     int idx;
-    idx = ParameterIndex(model, "Walk speed"); if (idx >= 0) parameters[idx] = 0.0;
+    idx = ParameterIndex(model, "Deprecated"); if (idx >= 0) parameters[idx] = 0.0;
     idx = ParameterIndex(model, "Walk turn");  if (idx >= 0) parameters[idx] = 0.0;
     idx = ParameterIndex(model, "Heading");    if (idx >= 0) parameters[idx] = 0.0;
   }
@@ -1901,8 +2092,6 @@ void MjTwin::ResetLocked(const mjModel* model) {
   int height_cost_id      = CostTermByName(model, "Height");
   int balance_cost_id     = CostTermByName(model, "Balance");
   // int gait_cost_id        = CostTermByName(model, "Gait");
-  int normclear_cost_id    = CostTermByName(model, "NormClear");
-
   // if (upright_cost_id >= 0)     weight[upright_cost_id] = 0.195;          
   if (height_cost_id >= 0)      weight[height_cost_id] = 0.0;              
   if (position_cost_id >= 0)    weight[position_cost_id] = 0.24;           
@@ -1910,7 +2099,6 @@ void MjTwin::ResetLocked(const mjModel* model) {
   if (balance_cost_id >= 0)     weight[balance_cost_id] = 0.21;           
   if (effort_cost_id >= 0)      weight[effort_cost_id] = 0.08;             
   if (posture_cost_id >= 0)     weight[posture_cost_id] = 0.03;          
-  if (normclear_cost_id >= 0)   weight[normclear_cost_id] = 4.0;           
   // if (orientation_cost_id >= 0) weight[orientation_cost_id] = 0.0;        
   // if (angmom_cost_id >= 0)      weight[angmom_cost_id] = 0.0;            
 
@@ -1929,7 +2117,7 @@ void MjTwin::ResetLocked(const mjModel* model) {
 
   {
     int idx;
-    idx = ParameterIndex(model, "Walk speed"); if (idx >= 0) parameters[idx] = 0.0;
+    idx = ParameterIndex(model, "Deprecated"); if (idx >= 0) parameters[idx] = 0.0;
     idx = ParameterIndex(model, "Walk turn");  if (idx >= 0) parameters[idx] = 0.0;
     idx = ParameterIndex(model, "Heading");    if (idx >= 0) parameters[idx] = 0.0;
   }
@@ -1945,6 +2133,14 @@ void MjTwin::ResetLocked(const mjModel* model) {
   knee_body_id_[2] = mj_name2id(model, mjOBJ_BODY, "HL_calf");
   knee_body_id_[3] = mj_name2id(model, mjOBJ_BODY, "HR_calf");
 
+  // residual_.knee_joint_id_clear_[0] = mj_name2id(model, mjOBJ_JOINT, "FL_calf_joint");
+  // residual_.knee_joint_id_clear_[1] = mj_name2id(model, mjOBJ_JOINT, "FR_calf_joint");
+  // residual_.knee_joint_id_clear_[2] = mj_name2id(model, mjOBJ_JOINT, "HL_calf_joint");
+  // residual_.knee_joint_id_clear_[3] = mj_name2id(model, mjOBJ_JOINT, "HR_calf_joint");
+  // residual_.thigh_joint_id_clear_[0] = mj_name2id(model, mjOBJ_JOINT, "FL_thigh_joint");
+  // residual_.thigh_joint_id_clear_[1] = mj_name2id(model, mjOBJ_JOINT, "FR_thigh_joint");
+  // residual_.thigh_joint_id_clear_[2] = mj_name2id(model, mjOBJ_JOINT, "HL_thigh_joint");
+  // residual_.thigh_joint_id_clear_[3] = mj_name2id(model, mjOBJ_JOINT, "HR_thigh_joint");
 
   
   // -------- Terrain hfield cache (heights + vertex normals) --------

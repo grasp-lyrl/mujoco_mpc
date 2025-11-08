@@ -21,7 +21,7 @@
     <numeric name="residual_Cadence" data="1.0 0 4"/>
     <numeric name="residual_Amplitude" data=".06 0 0.2"/>
     <numeric name="residual_Duty ratio" data="0.65 0 1"/>
-    <numeric name="residual_Walk speed" data="0 0 4"/>
+    <numeric name="residual_Deprecated" data="0 0 4"/>
     <numeric name="residual_Walk turn" data="0 -2 2"/>
     <numeric name="residual_select_Flip dir" data="0"/>
     <text name="residual_list_Flip dir" data="Back Flip|Front Flip"/>

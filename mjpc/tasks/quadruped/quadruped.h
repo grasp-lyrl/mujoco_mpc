@@ -224,6 +224,9 @@ class QuadrupedFlat : public Task {
     int height_cost_id_       = -1;
     // optional extra cost term for high-res foot cost map (mjTwin)
     int foot_cost_id_         = -1;
+    // optional velocity tracking cost
+    int velocity_cost_id_     = -1;
+    int speed_param_id_       = -1;
     int foot_geom_id_[kNumFoot];
     int shoulder_body_id_[kNumFoot];
 
@@ -237,9 +240,12 @@ class QuadrupedFlat : public Task {
     // clearance cost: ids and radii
     int clear_cost_id_        = -1;
     int head_site_id_clear_   = -1;
-    int knee_body_id_clear_[4] = {-1, -1, -1, -1};  // FL, FR, HL, HR
+    int knee_body_id_clear_[4] = {-1, -1, -1, -1};    // FL, FR, HL, HR (calf bodies)
+    int knee_joint_id_clear_[4] = {-1, -1, -1, -1};   // FL, FR, HL, HR (calf joints)
+    int thigh_joint_id_clear_[4] = {-1, -1, -1, -1};  // FL, FR, HL, HR (thigh joints)
     double head_radius_clear_ = 0.03;
     double knee_radius_clear_ = 0.03;
+    double thigh_radius_clear_ = 0.03;
     // trunk forward sensors to penalize (match collision meshes):
     // cylinder and sphere geoms on trunk (group=3)
     int trunk_cyl_geom_id_clear_ = -1;
@@ -665,6 +671,8 @@ class QuadrupedPose : public Task {
     int upright_cost_id_      = -1;
     int balance_cost_id_      = -1;
     int height_cost_id_       = -1;
+    int velocity_cost_id_     = -1;
+    int speed_param_id_       = -1;
     int pose_cost_id_        = -1;
     int pose_select_param_id_ = -1;
     int foot_geom_id_[kNumFoot];
