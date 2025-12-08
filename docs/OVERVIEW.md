@@ -251,7 +251,7 @@ The repository includes additional example tasks:
 - [Cart-Pole](../mjpc/tasks/cartpole/task.xml)
 - [Acrobot](../mjpc/tasks/acrobot/task.xml)
 - [Particle](../mjpc/tasks/particle/task.xml)
-- Quadruped [Hill](../mjpc/tasks/quadruped/task_hill.xml) | [Flat](../mjpc/tasks/quadruped/task_flat.xml)
+- Quadruped [Hill](../mjpc/tasks/quadruped/xmls/task_hill.xml) | [mjTwin](../mjpc/tasks/quadruped/xmls/task_mjTwin.xml)
 - [In-Hand Manipulation](../mjpc/tasks/hand/task.xml)
 - [Quadrotor](../mjpc/tasks/quadrotor/task.xml)
 - [Panda Arm Manipulation](../mjpc/tasks/panda/task.xml)

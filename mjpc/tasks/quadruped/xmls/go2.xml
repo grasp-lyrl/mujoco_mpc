@@ -1,5 +1,5 @@
 <mujoco model="Unitree Go2">
-  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+  <compiler angle="radian" meshdir="../objs" autolimits="true"/>
 
   <option cone="elliptic" impratio="100" integrator="implicitfast" timestep="0.0001"/>
   

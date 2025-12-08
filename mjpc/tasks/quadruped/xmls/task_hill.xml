@@ -1,5 +1,5 @@
 <mujoco model="Quadruped Terrain">
-  <include file="../common.xml"/>
+  <include file="../../common.xml"/>
 
   <size memory="1M"/>
 
