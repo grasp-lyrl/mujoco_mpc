@@ -358,7 +358,7 @@ class AgentTest(parameterized.TestCase):
     with agent_lib.Agent(task_id="mjTwin", model=model) as agent:
       self.assertEqual(
           tuple(agent.get_all_modes()),
-          ("Quadruped", "Biped", "Walk", "Scramble", "Flip"),
+          ("Quadruped", "Biped", "Walk", "Scramble"),
       )
 
   @absltest.skip("asset import issue")

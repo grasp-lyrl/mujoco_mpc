@@ -582,21 +582,29 @@ void Agent::GUI(mjUI& ui) {
   // norm weights
   if (ActiveTask()->num_term) {
     mjuiDef defNormWeight[kMaxCostTerms + 1];
+    int u = 0;
     for (int i = 0; i < ActiveTask()->num_term; i++) {
+      double* s = model_->sensor_user + i * model_->nuser_sensor;
+
+      // skip GUI element if slider would be degenerate (min == max)
+      if (mju_abs(s[3] - s[2]) < 1e-12) {
+        continue;
+      }
+
       // element
-      defNormWeight[i] = {mjITEM_SLIDERNUM, "weight", 2,
+      defNormWeight[u] = {mjITEM_SLIDERNUM, "weight", 2,
                           DataAt(ActiveTask()->weight, i), "0 1"};
 
       // name
-      mju::strcpy_arr(defNormWeight[i].name,
+      mju::strcpy_arr(defNormWeight[u].name,
                       model_->names + model_->name_sensoradr[i]);
 
       // limits
-      double* s = model_->sensor_user + i * model_->nuser_sensor;
-      mju::sprintf_arr(defNormWeight[i].other, "%f %f", s[2], s[3]);
+      mju::sprintf_arr(defNormWeight[u].other, "%f %f", s[2], s[3]);
+      u++;
     }
 
-    defNormWeight[ActiveTask()->num_term] = {mjITEM_END};
+    defNormWeight[u] = {mjITEM_END};
     mjui_add(&ui, defNormWeight);
   }
 

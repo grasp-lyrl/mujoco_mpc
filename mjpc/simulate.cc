@@ -2110,7 +2110,7 @@ void Simulate::UpdateHField(int hfieldid) {
 
   if (agent && agent->ActiveTask()) {
     if (auto* twin = dynamic_cast<mjpc::MjTwin*>(agent->ActiveTask())) {
-      twin->RebuildTerrainFromModel(m);
+      twin->terrain().Initialize(m);
     }
   }
 }
