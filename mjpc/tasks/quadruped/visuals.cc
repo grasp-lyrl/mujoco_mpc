@@ -1,4 +1,5 @@
-#include "mjpc/tasks/quadruped/visuals.h"
+#include "mjpc/tasks/quadruped/quadruped.h"
+#include "mjpc/tasks/quadruped/mjTwin.h"
 #include <mujoco/mujoco.h>
 #include "mjpc/utilities.h"
 
@@ -116,7 +117,7 @@ void Quadruped::ModifyScene(const mjModel* model, const mjData* data,
             NearestInHull(pcp2, capture, polygon, hull, num_hull);
             double pcp[3] = {pcp2[0], pcp2[1], com_ground};
             AddGeom(scene, mjGEOM_SPHERE, foot_size, pcp, /*mat=*/nullptr, kPcpRgba);
-        }
+}
 
 
 void mjpc::MjTwin::ModifyScene(const mjModel* model, const mjData* data,
@@ -124,12 +125,148 @@ void mjpc::MjTwin::ModifyScene(const mjModel* model, const mjData* data,
 
     Quadruped::ModifyScene(model, data, scene);
 
+    /* ------ Debugging the new foothold mechanism -------- */
+    if (terrain_.geom_id >= 0 && residual_.terrain_) {
+        // colors and sizes
+        const float rgba_nominal[4] = {0.2f, 0.6f, 1.0f, 0.35f};
+        const float rgba_safe[4]     = {0.2f, 0.9f, 0.2f, 0.9f};
+        const float rgba_snap[4]     = {0.9f, 0.4f, 0.1f, 0.9f};
+        const float rgba_baseline[4] = {0.9f, 0.9f, 0.2f, 0.9f};
+        const float rgba_pref[4]     = {0.6f, 0.2f, 0.8f, 0.9f};
+        double ghost_radius = 0.02;
+        double target_radius = 0.025;
+        double snap_radius = 0.006;
+        double baseline_size[3] = {0.02, 0.005, 0.0};  // cylinder: radius, half-height
+        double pref_size[3] = {0.016, 0, 0};
+
+        // gait info to match controller state
+        Quadruped::ResidualFn::A1Gait gait = residual_.GetGait();
+        double step[Quadruped::ResidualFn::kNumFoot];
+        residual_.FootStep(step, residual_.GetPhase(data->time), gait);
+
+        // torso and goal for scramble lookahead
+        double* torso_pos = data->xipos + 3 * residual_.torso_body_id_;
+        double* goal_pos = data->mocap_pos + 3 * residual_.goal_mocap_id_;
+
+        // foot world positions
+        double* foot_pos[Quadruped::ResidualFn::kNumFoot];
+        for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
+            foot_pos[foot] = data->geom_xpos + 3 * residual_.foot_geom_id_[foot];
+        }
+
+        for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
+            // skip visualizing "hands" in biped mode
+            if (residual_.current_mode_ == Quadruped::ResidualFn::kModeBiped) {
+                bool handstand = ReinterpretAsInt(parameters[residual_.biped_type_param_id_]);
+                bool front_hand =
+                    !handstand && (foot == Quadruped::ResidualFn::kFootFL ||
+                                   foot == Quadruped::ResidualFn::kFootFR);
+                bool back_hand =
+                    handstand && (foot == Quadruped::ResidualFn::kFootHL ||
+                                  foot == Quadruped::ResidualFn::kFootHR);
+                if (front_hand || back_hand) continue;
+            }
+
+            // nominal query (mirror GaitCost)
+            double query[3] = {foot_pos[foot][0], foot_pos[foot][1], foot_pos[foot][2]};
+            if (residual_.current_mode_ == Quadruped::ResidualFn::kModeScramble) {
+                double torso_to_goal[3];
+                double* goal = goal_pos;
+                mju_sub3(torso_to_goal, goal, torso_pos);
+                mju_normalize3(torso_to_goal);
+                mju_sub3(torso_to_goal, goal, foot_pos[foot]);
+                torso_to_goal[2] = 0;
+                mju_normalize3(torso_to_goal);
+                mju_addToScl3(query, torso_to_goal, 0.15);
+            }
+
+            // nominal ground under query
+            double nominal_ground = Ground(model, data, query);
+            double nominal_pos[3] = {query[0], query[1], nominal_ground};
+
+            // safe-set projection + features
+            double safe_xy[2];
+            residual_.GetProjectedFoothold(data, query, safe_xy);
+
+            Terrain::PatchFeatures features{};
+            residual_.terrain_->GetPatchFeatures(data, safe_xy[0], safe_xy[1], features);
+
+            Terrain::PatchFeatures current_features{};
+            residual_.terrain_->GetPatchFeatures(data, foot_pos[foot][0], foot_pos[foot][1],
+                                                 current_features);
+
+            double target_pos[3] = {safe_xy[0], safe_xy[1], features.max_height};
+            double baseline_z = mju_max(current_features.max_height, features.max_height);
+            double baseline_pos[3] = {foot_pos[foot][0], foot_pos[foot][1], baseline_z};
+
+            // swing phase and bezier reference (mirror CostRoughGround)
+            double phase = residual_.GetPhase(data->time);
+            double footphase = 2 * mjPI * residual_.kGaitPhase[gait][foot];
+            double phi = std::fmod(phase - footphase + 2 * mjPI, 2 * mjPI) / (2 * mjPI);
+
+            double P3[3] = {safe_xy[0], safe_xy[1],
+                            features.max_height + residual_.kFootRadius};
+            double step_vec[3] = {P3[0] - foot_pos[foot][0], P3[1] - foot_pos[foot][1], 0.0};
+            double P0[3] = {P3[0] - step_vec[0], P3[1] - step_vec[1],
+                            current_features.max_height + residual_.kFootRadius};
+            double target_amp = parameters[residual_.amplitude_param_id_];
+
+            double mid_x = 0.5 * (P0[0] + P3[0]);
+            double mid_y = 0.5 * (P0[1] + P3[1]);
+            Terrain::PatchFeatures mid_features{};
+            residual_.terrain_->GetPatchFeatures(data, mid_x, mid_y, mid_features);
+            double midpoint_z = mid_features.max_height;
+
+            double ground_ref = mju_max(mju_max(current_features.max_height, features.max_height),
+                                        midpoint_z);
+            double z_clear = ground_ref + residual_.kFootRadius + target_amp;
+            double P1[3] = {P0[0], P0[1], z_clear};
+            double P2[3] = {P3[0], P3[1], z_clear};
+
+            double one = 1.0 - phi;
+            double one2 = one * one;
+            double phi2 = phi * phi;
+            double b0 = one2 * one;
+            double b1 = 3 * one2 * phi;
+            double b2 = 3 * one * phi2;
+            double b3 = phi * phi2;
+
+            double pref[3];
+            for (int i = 0; i < 3; ++i) {
+                pref[i] = b0 * P0[i] + b1 * P1[i] + b2 * P2[i] + b3 * P3[i];
+            }
+
+            // draw nominal ghost
+            double ghost_size[3] = {ghost_radius, 0, 0};
+            AddGeom(scene, mjGEOM_SPHERE, ghost_size, nominal_pos, /*mat=*/nullptr, rgba_nominal);
+
+            // draw safe target
+            double target_size[3] = {target_radius, 0, 0};
+            AddGeom(scene, mjGEOM_SPHERE, target_size, target_pos, /*mat=*/nullptr, rgba_safe);
+
+            // draw snap vector
+            AddConnector(scene, mjGEOM_CAPSULE, snap_radius, nominal_pos, target_pos, rgba_snap);
+
+            // draw high-knee baseline marker
+            AddGeom(scene, mjGEOM_CYLINDER, baseline_size, baseline_pos, /*mat=*/nullptr,
+                    rgba_baseline);
+
+            // draw bezier reference point
+            AddGeom(scene, mjGEOM_SPHERE, pref_size, pref, /*mat=*/nullptr, rgba_pref);
+        }
+    }
+    /* ------------------------------------------------------------ */
+
     /* ------------------------------------------------------------ */
     /* anything from this point onwards is debugging visualizations */
     /* ------------------------------------------------------------ */
 
     // terrain geom pose
-    const double* gpos = data->geom_xpos + 3 * terrain_.geom_id;
+    double gpos[3];
+    const double* gpos_src = data->geom_xpos + 3 * terrain_.geom_id;
+    gpos[0] = gpos_src[0];
+    gpos[1] = gpos_src[1] - 2.0;  // shift visualization 2m along -y
+    gpos[2] = gpos_src[2];
     const double* gmat = data->geom_xmat + 9 * terrain_.geom_id; 
 
     // visualize 16 vertex normals in a central 4x4 grid
@@ -246,8 +383,8 @@ void mjpc::MjTwin::ModifyScene(const mjModel* model, const mjData* data,
     double sz3[3] = {site_r, 0, 0};
 
     // Head site position
-    if (head_site_id_vis_ >= 0) {
-        const double* p = data->site_xpos + 3 * head_site_id_vis_;
+    if (residual_.head_site_id_ >= 0) {
+        const double* p = data->site_xpos + 3 * residual_.head_site_id_;
         // Use the exact head collision sphere radius if present: find sphere geom
         // attached to the trunk body and nearest the head site
         int trunk_bid = mj_name2id(model, mjOBJ_BODY, "trunk");
@@ -274,7 +411,7 @@ void mjpc::MjTwin::ModifyScene(const mjModel* model, const mjData* data,
     }
     // Knees: use body COM positions as proxies (calf bodies)
     for (int k = 0; k < 4; ++k) {
-        int bid = knee_body_id_[k];
+        int bid = residual_.knee_body_id_[k];
         if (bid < 0) continue;
         const double* p = data->xpos + 3 * bid;
         AddGeom(scene, mjGEOM_SPHERE, sz3, p, /*mat=*/nullptr, rgba_knee);

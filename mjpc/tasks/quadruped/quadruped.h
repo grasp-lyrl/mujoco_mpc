@@ -2,32 +2,22 @@
 #define MJPC_TASKS_QUADRUPED_QUADRUPED_H_
 
 #include <string>
-#include <vector>
-#include <atomic>
-#include <cstddef>
-#include <cstring>
-
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
 #include "mjpc/tasks/quadruped/terrain.h"
-
 
 namespace mjpc {
 
 class Quadruped : public Task {
   public:
-    std::string Name() const override;
-    std::string XmlPath() const override;
+    std::string Name() const override = 0;
+    std::string XmlPath() const override = 0;
   class ResidualFn : public mjpc::BaseResidualFn {
    public:
     explicit ResidualFn(const Quadruped* task) : mjpc::BaseResidualFn(task) {}
     ResidualFn(const ResidualFn&) = default;
     void Residual(const mjModel* model, const mjData* data, double* residual) const override;
 
-    // default position cost weight (shared across tasks)
-    constexpr static double kPositionWeightDefault = 0.24;
-
-   private:
     friend class Quadruped;    
     //  ============  enums  ============
     // modes
@@ -82,9 +72,9 @@ class Quadruped : public Task {
     {
     // duty ratio  cadence  amplitude  balance   upright   height
     // unitless    Hz       meter      unitless  unitless  unitless
-      {1,          1,       0,         0.3,      1,        1},      // stand
-      {0.75,       1,       0.03,      0,        1,        1},      // walk
-      {0.45,       2,       0.03,      0.2,      1,        1},      // trot
+      {1,          1,       0,         0,        1,        1},      // stand
+      {0.75,       1,       0.03,      0.2,      1,        1},      // walk
+      {0.8,        1,       0.03,      0.2,      1,        1},      // trot
       {0.4,        4,       0.05,      0.03,     0.5,      0.2},    // canter
       {0.3,        3.5,     0.10,      0.03,     0.2,      0.1}     // gallop
     };
@@ -113,10 +103,12 @@ class Quadruped : public Task {
     constexpr static double kHeightQuadruped = 0.27;  // meter
 
     // target torso height over feet when bipedal
-    constexpr static double kHeightBiped = 0.50;       // meter
+    // constexpr static double kHeightBiped = 0.50;       // meter
+    constexpr static double kHeightBiped = 0.60;       // meter
 
     // radius of foot geoms
-    constexpr static double kFootRadius = 0.02;       // meter
+    // constexpr static double kFootRadius = 0.02;       // meter
+    constexpr static double kFootRadius = 0.022;       // meter
 
     // below this target yaw velocity, walk straight
     constexpr static double kMinAngvel = 0.01;        // radian/second
@@ -144,12 +136,56 @@ class Quadruped : public Task {
     // walk horizontal position given time
     void Walk(double pos[2], double time) const;
 
+
+    // ============= cost terms =============
+
+    int UprightCost(const mjData* data, double* residual,
+                    int counter) const;
+    int HeightCost(const mjData* data, const double torso_pos[3],
+                   double height_goal, const double avg_foot_pos[3],
+                   double* residual, int counter) const;
+    int PositionCost(const mjData* data, double* goal_pos,
+                     double* residual, int counter) const;
+    int GaitCost(const mjModel* model, const mjData* data,
+                 const double torso_pos[3], bool is_biped,
+                 double* foot_pos[kNumFoot], double* goal_pos,
+                 double* residual, int counter) const;
+    int BalanceCost(const mjModel* model, const mjData* data,
+                    double height_goal, const double avg_foot_pos[3],
+                    double* compos, double* residual,
+                    int counter) const;
+    int EffortCost(const mjModel* model, const mjData* data,
+                   double* residual, int counter) const;
+    int PostureCost(const mjModel* model, const mjData* data,
+                    double* residual, int counter) const;
+    int YawCost(const mjModel* model, const mjData* data,
+                const double* torso_xmat, double* residual,
+                int counter) const;
+    int AngularMomentumCost(const mjModel* model, const mjData* data,
+                            double* residual, int counter) const;
+    int ClearanceCost(const mjModel* model, const mjData* data,
+                      double* residual, int counter) const;
+
+   public:
+    void GetProjectedFoothold(const mjData* data, const double query[3],
+                              double safe_xy[2]) const;
+   private:
+    int CostFlatGround(const mjModel* model, const mjData* data, A1Foot foot,
+                       const double foot_pos[3], const double query[3],
+                       double step_amplitude, double* residual,
+                       int counter) const;
+    int CostRoughGround(const mjModel* model, const mjData* data, A1Foot foot,
+                        const double foot_pos[3], const double query[3],
+                        double step_amplitude, double current_step_height,
+                        double* residual, int counter) const;
+
+   public:
     //  ============  task state variables, managed by Transition  ============
-    A1Mode current_mode_       = kModeQuadruped;
+    A1Mode current_mode_         = kModeQuadruped;
     double last_transition_time_ = -1;
 
     // common mode states
-    double mode_start_time_  = 0;
+    double mode_start_time_   = 0;
     double position_[3]       = {0};
 
     // walk states
@@ -157,9 +193,8 @@ class Quadruped : public Task {
     double speed_             = 0;
     double angvel_            = 0;
 
-    // backflip states
     // gait-related states
-    double current_gait_      = kGaitStand;
+    double current_gait_      = kGaitWalk;
     double phase_start_       = 0;
     double phase_start_time_  = 0;
     double phase_velocity_    = 0;
@@ -177,29 +212,24 @@ class Quadruped : public Task {
     int amplitude_param_id_   = -1;
     int duty_param_id_        = -1;
     int arm_posture_param_id_ = -1;
+    int terrain_type_param_id_ = -1;
     int upright_cost_id_      = -1;
     int balance_cost_id_      = -1;
     int height_cost_id_       = -1;
+    
     int foot_geom_id_[kNumFoot];
+
     int shoulder_body_id_[kNumFoot];
+    int shoulder_box_mocap_id_[kNumFoot];
 
-    // terrain references for smooth stance gating
-    int terrain_hfield_id_    = -1;
-    int terrain_geom_id_      = -1;
+    int knee_body_id_[kNumFoot];
+    int knee_box_mocap_id_[kNumFoot];
 
-    // clearance cost: ids and radii
-    int clear_cost_id_        = -1;
-    int head_site_id_clear_   = -1;
-    int knee_body_id_clear_[4] = {-1, -1, -1, -1};  // FL, FR, HL, HR
-    double head_radius_clear_ = 0.03;
-    double knee_radius_clear_ = 0.03;
-    // trunk forward sensors to penalize (match collision meshes):
-    // cylinder and sphere geoms on trunk (group=3)
-    int trunk_cyl_geom_id_clear_ = -1;
-    int trunk_sph_geom_id_clear_ = -1;
-    double trunk_cyl_radius_clear_ = 0.03;  // cylinder radius (size[0])
-    double trunk_sph_radius_clear_ = 0.03;  // sphere radius (size[0])
-
+    int lidar_geom_id_ = -1;
+    int lidar_box_mocap_id_ = -1;
+    double box_half_size_[3] = {0.0, 0.0, 0.0};
+    
+    const Terrain* terrain_ = nullptr;
   };
 
   Quadruped() : residual_(this) {}
@@ -217,87 +247,11 @@ class Quadruped : public Task {
     return std::make_unique<ResidualFn>(residual_);
   }
   ResidualFn* InternalResidual() override { return &residual_; }
-  // Some variants omit cost sensors; allow them to skip gracefully.
-  virtual bool AllowMissingCostTerms() const { return false; }
-  // Some variants do not use quadruped gait parameters at all.
-  virtual bool UseGaitParameters() const { return true; }
 
- private:
   friend class ResidualFn;
   ResidualFn residual_;
 };
 
-
-class MjTwin : public Quadruped {
- public:
-
-  std::string Name() const override;
-  std::string XmlPath() const override;
-
-  void ResetLocked(const mjModel* model) override;
-  void TransitionLocked(mjModel* model, mjData* data) override;
-  void TransitionEnvOnlyLocked(mjModel* model, mjData* data) override;
-  void ModifyScene(const mjModel* model, const mjData* data,
-                   mjvScene* scene) const override;
-  Terrain& terrain() { return terrain_; }
-  const Terrain& terrain() const { return terrain_; }
-
-  // Return the top surface point and normal (world frame) of the mocap box
-  // corresponding to a given robot collision geom. Returns false if no such
-  // box mapping exists.
-  bool BoxTopSurfaceAndNormalForGeom(const mjModel* model, const mjData* data,
-                                     int geom_id,
-                                     double s_world[3], double n_world[3]) const;
-
-  // Same as above, but resolves via any collision geom that belongs to the
-  // specified body. Returns false if no mapped geom is found.
-  bool BoxTopSurfaceAndNormalForBody(const mjModel* model, const mjData* data,
-                                     int body_id,
-                                     double s_world[3], double n_world[3]) const;
-
-  // Intersection of the line from mesh point to box center with the box surface.
-  // Returns false if no corresponding box is found. s_world is the surface point
-  // where the line (from box center towards mesh point) exits the box.
-  bool BoxCenterRaySurfacePointForGeom(const mjModel* model, const mjData* data,
-                                       int geom_id, const double p_world[3],
-                                       double s_world[3]) const;
-
-  bool BoxCenterRaySurfacePointForBody(const mjModel* model, const mjData* data,
-                                       int body_id, const double p_world[3],
-                                       double s_world[3]) const;
-
-  // Closest point on the surface of the mocap box to a given world point.
-  // Uses oriented box geometry; returns false if no box is mapped.
-  bool BoxClosestSurfacePointForGeom(const mjModel* model, const mjData* data,
-                                     int geom_id, const double p_world[3],
-                                     double s_world[3]) const;
-  bool BoxClosestSurfacePointForBody(const mjModel* model, const mjData* data,
-                                     int body_id, const double p_world[3],
-                                     double s_world[3]) const;
-
- private:
-  Terrain terrain_;
-
-  // Visualization IDs for norm-clearance preview (head + 4 knees)
-  int head_site_id_vis_ = -1;
-  int knee_body_id_[4] = {-1, -1, -1, -1};  // order: FL, FR, HL, HR
-
-    // Mocap ids for support boxes (order: FL, FR, HL, HR)
-    int box_mocap_id_[4] = {-1, -1, -1, -1};
-    // Foot geom ids for convenience (order: FL, FR, HL, HR)
-    int foot_geom_id_boxref_[4] = {-1, -1, -1, -1};
-    // Box half-height in meters (size[2]) to position center below surface
-    double box_half_height_ = 0.04;
-
-    // Generic mapping: for any named robot collision geom G, if a mocap body
-    // named "box_"+G exists, we will update its pose each step.
-    struct PairMapEntry {
-      int geom_id = -1;
-      int mocap_id = -1;
-      double half_h = 0.02;
-    };
-    std::vector<PairMapEntry> generic_pairs_;
-};
 
 }  // namespace mjpc
 

@@ -139,7 +139,7 @@ class Task {
 
   // GUI toggles
   int reset = 0;
-  int visualize = 0;
+  int visualize = 1;
 
   // cost parameters
   int num_residual;

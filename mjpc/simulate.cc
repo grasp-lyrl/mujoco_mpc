@@ -32,6 +32,7 @@
 #include <platform_ui_adapter.h>
 #include "mjpc/array_safety.h"
 #include "mjpc/agent.h"
+#include "mjpc/tasks/quadruped/mjTwin.h"
 #include "mjpc/tasks/quadruped/quadruped.h"
 #include "mjpc/utilities.h"
 
@@ -2110,7 +2111,7 @@ void Simulate::UpdateHField(int hfieldid) {
 
   if (agent && agent->ActiveTask()) {
     if (auto* twin = dynamic_cast<mjpc::MjTwin*>(agent->ActiveTask())) {
-      twin->terrain().Initialize(m);
+      twin->terrain_.Initialize(m);
     }
   }
 }

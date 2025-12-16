@@ -34,7 +34,7 @@
 	  
       <!-- Visual -->
       <default class="visual">
-        <geom type="mesh" contype="0" conaffinity="0" group="2"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1"/>
       </default>
 
       <!-- Collision -->
@@ -97,7 +97,7 @@
       <geom mesh="base_4" material="gray"  class="visual" />
       <geom name="trunk_box_coll" size="0.1881 0.04675 0.057" type="box" class="collision" contype="32" conaffinity="0" />
       <geom name="head_cyl" size="0.05 0.045" pos="0.285 0 0.01" type="cylinder" class="collision" contype="64" conaffinity="0"/>
-      <geom name="lidar_sph" size="0.047" pos="0.293 0 -0.06" class="collision" contype="128" conaffinity="0"/>
+      <geom name="lidar" size="0.047" pos="0.293 0 -0.06" class="collision" contype="128" conaffinity="0"/>
 
       <site name="imu" pos="-0.02557 0 0.04232" />
 

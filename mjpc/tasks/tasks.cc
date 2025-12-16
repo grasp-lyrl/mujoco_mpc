@@ -34,6 +34,7 @@
 #include "mjpc/tasks/op3/stand.h"
 #include "mjpc/tasks/panda/panda.h"
 #include "mjpc/tasks/particle/particle.h"
+#include "mjpc/tasks/quadruped/mjTwin.h"
 #include "mjpc/tasks/quadrotor/quadrotor.h"
 #include "mjpc/tasks/quadruped/quadruped.h"
 #include "mjpc/tasks/rubik/solve.h"

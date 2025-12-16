@@ -14,13 +14,12 @@ namespace mjpc {
         explicit Terrain(const mjModel* model);
 
         void Initialize(const mjModel* model);
-        bool UpdateNormals();
 
         void GetHeightFromLocal(double x, double y, double& z) const;
         void GetNormalFromLocal(double x, double y, double n[3]) const;
 
-        bool GetHeightFromWorld(const mjData* data, double x, double y, double& z) const;
-        bool GetNormalFromWorld(const mjData* data, double x, double y, double n[3]) const;
+        void GetHeightFromWorld(const mjData* data, double x, double y, double& z) const;
+        void GetNormalFromWorld(const mjData* data, double x, double y, double n[3]) const;
 
         int geom_id = -1;
         int hfield_id = -1;
@@ -33,14 +32,37 @@ namespace mjpc {
         
         int adr = 0;
         const float* H = nullptr;  // pointer to hfield data
-        std::vector<float> normals;
 
         struct BilinearParams {
             int x0, x1, y0, y1;
             double tx, ty;
         };
 
-    BilinearParams CoordsLocalToGrid(double x, double y) const;
+    public:
+        BilinearParams LocalToGrid(double x, double y) const;
+        void WorldToLocal(const mjData* data, double x, double y,
+                          const double*& R, const double*& t,
+                          double p_local[3]) const;
+
+        struct PatchFeatures {
+            double centroid[3];
+            double normal[3];
+            double roughness;
+            double step_height;
+            double max_height;
+        };
+
+        void GetPatchFeatures(const mjData* data, double x, double y,
+                              PatchFeatures& features,
+                              double patch_radius = 0.08) const;
+        bool IsSafe(const mjData* data, double x, double y) const;
+
+    private:
+        static constexpr double kMaxRoughness = 0.02;
+        static constexpr double kMinNormalZ = 0.7;
+        static constexpr double kMaxStepHeight = 0.05;
+
+    void GetVertexNormal(int r, int c, float* n) const;
   };
 
 }

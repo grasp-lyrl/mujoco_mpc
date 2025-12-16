@@ -16,17 +16,19 @@
     <numeric name="gradient_spline_points" data="5"/>
 
     <!-- residual -->
-    <numeric name="residual_select_Gait" data="2"/>
+    <numeric name="residual_select_Gait" data="1"/>
     <text name="residual_list_Gait" data="Stand|Walk|Trot|Canter|Gallop"/>
-    <numeric name="residual_select_Gait switch" data="1"/>
+    <numeric name="residual_select_Gait switch" data="0"/>
     <text name="residual_list_Gait switch" data="Manual|Automatic"/>
-    <numeric name="residual_Cadence" data="2.0 0 4"/>
+    <numeric name="residual_Cadence" data="1.0 0 4"/>
     <numeric name="residual_Amplitude" data="0.03 0 0.2"/>
-    <numeric name="residual_Duty ratio" data="0.45 0 1"/>
+    <numeric name="residual_Duty ratio" data="0.75 0 1"/>
     <numeric name="residual_Walk speed" data="0 0 4"/>
     <numeric name="residual_Walk turn" data="0 -2 2"/>
     <numeric name="residual_select_Biped type" data="0"/>
     <text name="residual_list_Biped type" data="Foot Stand|Hand Stand"/>
+    <numeric name="residual_select_Terrain Type" data="1 0 1"/>
+    <text name="residual_list_Terrain Type" data="Flat|Rough"/>
     <numeric name="residual_Heading" data="0 -3.14 3.14"/>
     <numeric name="residual_Arm posture" data=".03 0 1"/>
 
@@ -49,9 +51,11 @@
 
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.04"/>
     <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="24 24" reflectance="0.05" rgba="0.85 0.92 1.00 1"/>
-    <material name="cost_mat" rgba="1 0.5 0 0.4"/>
+    <material name="unsafe_overlay_mat" rgba="1.0 0.141 0.0 0.6"/>
 
-    <hfield name="hf133" file="../pngs/hfield_4cm.png" size="3 3 0.1 2"/>
+    <hfield name="hf133_unsafe" file="../pngs/white_4cm.png" size="3 3 0.12 0.2"/>
+    <hfield name="hf133" file="../pngs/hfield_smooth.png" size="3 3 0.12 2"/>
+
   </asset>
 
   <visual>
@@ -64,8 +68,9 @@
     <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
 
     <geom name="terrain" pos="1.5 0 0.0" type="hfield" hfield="hf133" material="terrain_mat" contype="0" conaffinity="0" condim="3"/>
+    <geom name="terrain_unsafe_overlay" pos="1.5 0 -0.05" type="hfield" hfield="hf133_unsafe" material="unsafe_overlay_mat" contype="0" conaffinity="0" condim="3" group="5"/>
 
-    <body name="goal" mocap="true" pos="2.5 0 0.35">
+    <body name="goal" mocap="true" pos="2.5 0 0.40">
       <geom size="0.05" contype="0" conaffinity="0" rgba="0.678 0.847 0.902 0.7" group="2"/>
     </body>
   </worldbody>
@@ -81,17 +86,17 @@
 <!-- Sensors -->
 <sensor> 
     <user name="Upright" dim="3" user="6 1 0 3 0.05"/>
-    <user name="Height" dim="1" user="6 1 0 3 0.04"/>
+    <!-- <user name="Height" dim="1" user="6 1 0 3 0.04"/> -->
     <user name="Position" dim="3" user="2 0.2 0 0.5 0.1"/>
-    <user name="Gait" dim="4" user="6 2 0 10 0.03"/>
+    <user name="Gait" dim="12" user="6 2 0 10 0.03"/>
     <user name="Balance" dim="2" user="2 0.2 0 0.3 0.1"/>
-    <user name="Effort" dim="12" user="0 0.03 0.0 0.1"/>
+    <user name="Effort" dim="12" user="0 0.08 0.0 0.1"/>
     <user name="Posture" dim="12" user="0 0.02 0.0 0.1"/>
-    <user name="Orientation" dim="2" user="0 0 0 0"/>
-    <user name="Angmom" dim="3" user="0 0 0 0"/>
+    <!-- <user name="Orientation" dim="2" user="0 0 0 0"/> -->
+    <!-- <user name="Angmom" dim="3" user="0 0 0 0"/> -->
 
     <!-- ours -->
-    <user name="NormClear" dim="10" user="2 0 0 5 0.1"/>
+    <user name="NormClear" dim="9" user="2 0 0 5 0.1"/>
 
     <jointpos name="pos_FR_hip_joint" joint="FR_hip_joint"/>
     <jointpos name="pos_FR_thigh_joint" joint="FR_thigh_joint"/>
