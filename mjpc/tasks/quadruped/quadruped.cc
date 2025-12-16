@@ -66,16 +66,6 @@ void Quadruped::TransitionLocked(mjModel* model, mjData* data) {
         residual_.phase_start_ = data->time;
   }
 
-  // ---------- prevent forbidden mode transitions ----------
-  // switching mode, not from quadruped
-  if (mode != residual_.current_mode_ &&
-      residual_.current_mode_ != ResidualFn::kModeQuadruped) {
-    // switch into stateful mode only allowed from Quadruped
-    if (mode == ResidualFn::kModeWalk) {
-      mode = ResidualFn::kModeQuadruped;
-    }
-  }
-
   // ---------- handle phase velocity change ----------
   double phase_velocity = 2 * mjPI * parameters[residual_.cadence_param_id_];
   if (phase_velocity != residual_.phase_velocity_) {
@@ -128,51 +118,6 @@ void Quadruped::TransitionLocked(mjModel* model, mjData* data) {
     weight[residual_.balance_cost_id_] = ResidualFn::kGaitParam[gait][3];
     weight[residual_.upright_cost_id_] = ResidualFn::kGaitParam[gait][4];
     // weight[residual_.height_cost_id_] = ResidualFn::kGaitParam[gait][5];
-  }
-
-
-  // ---------- Walk ----------
-  double* goal_pos = data->mocap_pos + 3*residual_.goal_mocap_id_;
-  if (mode == ResidualFn::kModeWalk) {
-    double angvel = parameters[ParameterIndex(model, "Walk turn")];
-    double speed = parameters[ParameterIndex(model, "Walk speed")];
-
-    // current torso direction
-    double* torso_xmat = data->xmat + 9*residual_.torso_body_id_;
-    double forward[2] = {torso_xmat[0], torso_xmat[3]};
-    mju_normalize(forward, 2);
-    double leftward[2] = {-forward[1], forward[0]};
-
-    // switching into Walk or parameters changed, reset task state
-    if (mode != residual_.current_mode_ || residual_.angvel_ != angvel ||
-        residual_.speed_ != speed) {
-      // save time
-      residual_.mode_start_time_ = data->time;
-
-      // save current speed and angvel
-      residual_.speed_ = speed;
-      residual_.angvel_ = angvel;
-
-      // compute and save rotation axis / walk origin
-      double axis[2] = {data->xpos[3*residual_.torso_body_id_],
-                        data->xpos[3*residual_.torso_body_id_+1]};
-      if (mju_abs(angvel) > ResidualFn::kMinAngvel) {
-        // don't allow turning with very small angvel
-        double d = speed / angvel;
-        axis[0] += d * leftward[0];
-        axis[1] += d * leftward[1];
-      }
-      residual_.position_[0] = axis[0];
-      residual_.position_[1] = axis[1];
-
-      // save vector from axis to initial goal position
-      residual_.heading_[0] = goal_pos[0] - axis[0];
-      residual_.heading_[1] = goal_pos[1] - axis[1];
-    }
-
-    // move goal
-    double time = data->time - residual_.mode_start_time_;
-    residual_.Walk(goal_pos, time);
   }
 
   // save mode
@@ -292,25 +237,6 @@ void Quadruped::ResidualFn::AverageFootPos(
     mju_addTo3(avg_foot_pos, foot_pos[kFootFL]);
     mju_addTo3(avg_foot_pos, foot_pos[kFootFR]);
     mju_scl3(avg_foot_pos, avg_foot_pos, 0.25);
-  }
-}
-
-// horizontal Walk trajectory
-void Quadruped::ResidualFn::Walk(double pos[2], double time) const {
-  if (mju_abs(angvel_) < kMinAngvel) {
-    // no rotation, go in straight line
-    double forward[2] = {heading_[0], heading_[1]};
-    mju_normalize(forward, 2);
-    pos[0] = position_[0] + heading_[0] + time*speed_*forward[0];
-    pos[1] = position_[1] + heading_[1] + time*speed_*forward[1];
-  } else {
-    // walk on a circle
-    double angle = time * angvel_;
-    double mat[4] = {mju_cos(angle), -mju_sin(angle),
-                     mju_sin(angle),  mju_cos(angle)};
-    mju_mulMatVec(pos, mat, heading_, 2, 2);
-    pos[0] += position_[0];
-    pos[1] += position_[1];
   }
 }
 

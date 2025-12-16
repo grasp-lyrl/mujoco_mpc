@@ -6,7 +6,7 @@
 
   <custom>
     <!-- agent -->
-    <text name="task_transition" data="Quadruped|Biped|Walk|Scramble"/>
+    <text name="task_transition" data="Quadruped|Biped|Scramble"/>
     <numeric name="agent_planner" data="2"/>
     <numeric name="agent_horizon" data="0.3"/>
     <numeric name="agent_timestep" data="0.01"/>
@@ -23,8 +23,6 @@
     <numeric name="residual_Cadence" data="1.0 0 4"/>
     <numeric name="residual_Amplitude" data="0.03 0 0.2"/>
     <numeric name="residual_Duty ratio" data="0.75 0 1"/>
-    <numeric name="residual_Walk speed" data="0 0 4"/>
-    <numeric name="residual_Walk turn" data="0 -2 2"/>
     <numeric name="residual_select_Biped type" data="0"/>
     <text name="residual_list_Biped type" data="Foot Stand|Hand Stand"/>
     <numeric name="residual_select_Terrain Type" data="1 0 1"/>

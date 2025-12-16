@@ -82,6 +82,7 @@ add_library(
   tasks/quadruped/costs/effort_cost.cc
   tasks/quadruped/costs/height_cost.cc
   tasks/quadruped/costs/gait_cost.cc
+  tasks/quadruped/costs/rough_ground_cost.cc
   tasks/quadruped/costs/angmom_cost.cc
   tasks/quadruped/costs/yaw_cost.cc
   tasks/quadruped/costs/clearance_cost.cc
