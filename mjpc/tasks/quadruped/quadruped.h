@@ -8,6 +8,10 @@
 
 namespace mjpc {
 
+// Normalized swing phase helper shared across gait and visualization logic.
+double CalculateNormalizedPhase(double global_phase, double gait_phase_offset,
+                                double duty_ratio);
+
 class Quadruped : public Task {
     public:
         std::string Name() const override = 0;
