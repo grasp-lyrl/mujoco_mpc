@@ -1,5 +1,6 @@
 #include "mjpc/tasks/quadruped/quadruped.h"
 #include "mjpc/tasks/quadruped/mjTwin.h"
+#include "mjpc/tasks/quadruped/footholds.h"
 #include <mujoco/mujoco.h>
 #include "mjpc/utilities.h"
 
@@ -13,6 +14,9 @@ namespace { // Colors for visualization elements drawn in ModifyScene().
     constexpr float kAvgRgba[4]  = {0.4, 0.2, 0.8, 1};   // average foot position
     constexpr float kCapRgba[4]  = {0.3, 0.3, 0.8, 1};   // capture point
     constexpr float kPcpRgba[4]  = {0.5, 0.5, 0.2, 1};   // projected capture point
+    constexpr float kQueryRgba[4] = {0.1f, 0.5f, 1.0f, 0.7f};   // nominal query
+    constexpr float kCandidateRgba[4] = {0.1f, 0.5f, 1.0f, 0.4f}; // sampled candidates
+    constexpr float kChosenRgba[4] = {0.1f, 0.9f, 0.2f, 0.9f};  // chosen landing
 }
 
 
@@ -124,32 +128,28 @@ static void VisualizeFootholdLogic(const mjModel* model, const mjData* data,
                                    const Quadruped::ResidualFn& residual,
                                    const Terrain& terrain,
                                    const std::vector<double>& parameters) {
-  const float rgba_nominal[4] = {0.2f, 0.6f, 1.0f, 0.35f};
-  const float rgba_safe[4] = {0.2f, 0.9f, 0.2f, 0.9f};
-  const float rgba_snap[4] = {0.9f, 0.4f, 0.1f, 0.9f};
-  double ghost_radius = 0.02;
-    double target_radius = 0.025;
+  const float rgba_bezier[4] = {0.9f, 0.4f, 0.1f, 0.9f};    // orange curve
+  const float rgba_tracked[4] = {0.6f, 0.2f, 0.8f, 0.95f}; // purple point
   double snap_radius = 0.006;
+  double tracked_radius = 0.02;
+  double query_radius = 0.015;
+  double candidate_radius = 0.008;
+
+  // read current targets (point on curve)
+  double* foothold_targets = SensorByName(model, data, "foothold_targets");
 
   Quadruped::ResidualFn::A1Gait gait = residual.GetGait();
   double step[Quadruped::ResidualFn::kNumFoot];
   residual.FootStep(step, residual.GetPhase(data->time), gait);
+  double duty_ratio = parameters[residual.duty_param_id_];
 
-  double* torso_pos = data->xipos + 3 * residual.torso_body_id_;
-  double* goal_pos = data->mocap_pos + 3 * residual.goal_mocap_id_;
-
-  double* foot_pos[Quadruped::ResidualFn::kNumFoot];
-  for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
-    foot_pos[foot] = data->geom_xpos + 3 * residual.foot_geom_id_[foot];
-  }
-  double* hip_pos[Quadruped::ResidualFn::kNumFoot];
-  const double* hip_mat[Quadruped::ResidualFn::kNumFoot];
-  for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
-    hip_pos[foot] = data->xipos + 3 * residual.shoulder_body_id_[foot];
-    hip_mat[foot] = data->xmat + 9 * residual.shoulder_body_id_[foot];
-  }
+  const double* torso_mat = data->xmat + 9 * residual.torso_body_id_;
+  // Use torso x-axis column as forward (ignore z component).
+  double torso_x[3] = {torso_mat[0], torso_mat[3], 0.0};
+  mju_normalize3(torso_x);
 
   for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
+    // skip "hands" in biped mode
     if (residual.current_mode_ == Quadruped::ResidualFn::kModeBiped) {
       bool handstand = ReinterpretAsInt(parameters[residual.biped_type_param_id_]);
       bool front_hand = !handstand && (foot == Quadruped::ResidualFn::kFootFL ||
@@ -159,196 +159,101 @@ static void VisualizeFootholdLogic(const mjModel* model, const mjData* data,
       if (front_hand || back_hand) continue;
     }
 
-    // Visualize the same hip-anchored target (with 5cm torso +X + 10cm torso +Y offset)
-    // that the cost uses.
-    constexpr double kHipForwardOffset = 0.05;  // 5cm along torso +X
-    const double* torso_xmat = data->xmat + 9 * residual.torso_body_id_;
-    double torso_x[3] = {torso_xmat[0], torso_xmat[1], torso_xmat[2]};
-    double lateral = (foot == Quadruped::ResidualFn::kFootFR ||
-                      foot == Quadruped::ResidualFn::kFootHR) ? -0.10 : 0.10;
-    double hip_offset_world[3] = {
-        hip_mat[foot][3] * lateral,
-        hip_mat[foot][4] * lateral,
-        hip_mat[foot][5] * lateral};
-    double query[3] = {hip_pos[foot][0] + hip_offset_world[0] + kHipForwardOffset * torso_x[0],
-                       hip_pos[foot][1] + hip_offset_world[1] + kHipForwardOffset * torso_x[1],
-                       hip_pos[foot][2] + hip_offset_world[2]};
-    if (residual.current_mode_ == Quadruped::ResidualFn::kModeScramble) {
-      double duty_ratio = parameters[residual.duty_param_id_];
-      // Mirror query offset schedule from gait cost (aligned to StepHeight cylinders).
-      double scale = 0.0;
-      if (duty_ratio < 1.0) {
-        double global_phase = residual.GetPhase(data->time);
-        double foot_phase = 2 * mjPI * Quadruped::ResidualFn::kGaitPhase[gait][foot];
-        double phi_full =
-            std::fmod(global_phase - foot_phase + 2 * mjPI, 2 * mjPI) /
-            (2 * mjPI);  // [0,1)
+    // rely on latched control points from footholds; only draw when Bezier is active
+    const bool bezier_active = IsBezierActive(foot);
 
-        const double half_swing = 0.5 * (1.0 - duty_ratio);
-        const bool in_stance = (phi_full >= half_swing && phi_full <= 1.0 - half_swing);
+    // reconstruct nominal query (15cm forward) and drop to hfield
+    const double* p0 = data->geom_xpos + 3 * residual.foot_geom_id_[foot];
+    double query[3];
+    mju_copy3(query, p0);
+    mju_addToScl3(query, torso_x, 0.15);
+    double qh = Ground(model, data, query);
+    query[2] = qh;
 
-        if (in_stance) {
-          double stance_progress = (phi_full - half_swing) / duty_ratio;
-          if (stance_progress < 0.50) {
-            scale = 0.0;
-          } else {
-            double t = (stance_progress - 0.50) / 0.50;
-            t = mju_clip(t, 0.0, 1.0);
-            scale = t;
-          }
-        } else {
-          double angle = fmod(global_phase + mjPI - foot_phase, 2 * mjPI) - mjPI;
-          angle *= 0.5 / (1.0 - duty_ratio);
-          angle = mju_clip(angle, -mjPI / 2, mjPI / 2);
-          double swing_phase = (angle + mjPI / 2) / mjPI;
+    // visualize nominal query (blue) at ground
+    double qsize[3] = {query_radius, 0, 0};
+    AddGeom(scene, mjGEOM_SPHERE, qsize, query, /*mat=*/nullptr, kQueryRgba);
 
-          if (swing_phase < 0.60) {
-            scale = 1.0;
-          } else {
-            double t = (swing_phase - 0.60) / 0.40;
-            t = mju_clip(t, 0.0, 1.0);
-            scale = 1.0 - t;
+    // safety sampling: forward points on hfield
+    bool unsafe = false;
+    const double forward_offsets[5] = {0.03, 0.06, 0.09, 0.12, 0.15};
+    double sample_size[3] = {candidate_radius, 0, 0};
+    for (double off : forward_offsets) {
+      double sample[3];
+      mju_scl3(sample, torso_x, off);
+      mju_addTo3(sample, p0);
+      sample[2] = Ground(model, data, sample);
+      AddGeom(scene, mjGEOM_SPHERE, sample_size, sample, /*mat=*/nullptr, kCandidateRgba);
+      if (residual.terrain_ && !residual.terrain_->IsSafe(data, sample[0], sample[1])) {
+        unsafe = true;
+      }
+    }
+
+    double chosen[3];
+    mju_copy3(chosen, query);
+    if (unsafe && residual.terrain_) {
+      const double radii[] = {0.03, 0.05, 0.07, 0.09, 0.12};
+      constexpr int kNumCandidates = 8;
+      double best_dist2 = std::numeric_limits<double>::infinity();
+      for (double rad : radii) {
+        for (int i = 0; i < kNumCandidates; ++i) {
+          double ang = 2.0 * mjPI * (static_cast<double>(i) / kNumCandidates);
+          double cx = query[0] + rad * mju_cos(ang);
+          double cy = query[1] + rad * mju_sin(ang);
+          double candidate[3] = {cx, cy, query[2]};
+          candidate[2] = Ground(model, data, candidate);
+          AddGeom(scene, mjGEOM_SPHERE, sample_size, candidate, /*mat=*/nullptr, kCandidateRgba);
+          if (residual.terrain_->IsSafe(data, cx, cy)) {
+            double dx = cx - query[0];
+            double dy = cy - query[1];
+            double d2 = dx * dx + dy * dy;
+            if (d2 < best_dist2) {
+              best_dist2 = d2;
+              chosen[0] = cx;
+              chosen[1] = cy;
+              chosen[2] = candidate[2];
+            }
           }
         }
       }
-
-      double torso_to_goal[3];
-      double* goal = goal_pos;
-      mju_sub3(torso_to_goal, goal, torso_pos);
-      mju_normalize3(torso_to_goal);
-      mju_sub3(torso_to_goal, goal, hip_pos[foot]);
-      torso_to_goal[2] = 0;
-      mju_normalize3(torso_to_goal);
-      mju_addToScl3(query, torso_to_goal, 0.15 * scale);
     }
 
-    double nominal_ground = Ground(model, data, query);
-    double nominal_pos[3] = {query[0], query[1], nominal_ground};
+    // chosen point (green) on ground
+    AddGeom(scene, mjGEOM_SPHERE, qsize, chosen, /*mat=*/nullptr, kChosenRgba);
 
-    double safe_xy[2];
-    residual.GetProjectedFoothold(data, query, safe_xy);
+    if (!bezier_active) continue;  // no-bezier: no curve
 
-    Terrain::PatchFeatures features{};
-    terrain.GetPatchFeatures(data, safe_xy[0], safe_xy[1], features);
+    // swing phase aligned with step-height cylinders
+    double phase = residual.GetPhase(data->time);
+    double footphase = 2 * mjPI * Quadruped::ResidualFn::kGaitPhase[gait][foot];
+    double swing_phase = SwingPhase(phase, footphase, duty_ratio);
 
-    // candidate footholds evaluated during rough-terrain search
-    const double candidate_radii[] = {0.03, 0.05, 0.07, 0.09, 0.12};
-    constexpr int kNumCandidates = 8;
-    const float rgba_candidate[4] = {0.2f, 0.4f, 1.0f, 0.9f};
-    const float rgba_bezier[4] = {0.9f, 0.4f, 0.1f, 0.9f};  // orange (trajectory)
-    const float rgba_tracked[4] = {0.6f, 0.2f, 0.8f, 0.95f};  // purple (tracked point)
-    double candidate_size[3] = {target_radius * 0.3, 0, 0};
-    for (double rad : candidate_radii) {
-      for (int i = 0; i < kNumCandidates; ++i) {
-        double angle = 2.0 * mjPI * (static_cast<double>(i) / kNumCandidates);
-        double cx = query[0] + rad * mju_cos(angle);
-        double cy = query[1] + rad * mju_sin(angle);
-        Terrain::PatchFeatures candidate_features{};
-        terrain.GetPatchFeatures(data, cx, cy, candidate_features);
-        double candidate_pos[3] = {cx, cy, candidate_features.max_height};
-        AddGeom(scene, mjGEOM_SPHERE, candidate_size, candidate_pos,
-                /*mat=*/nullptr, rgba_candidate);
-      }
-    }
+    // get latched control points
+    double ctrl[4][3];
+    if (!GetLatchedControlPoints(foot, ctrl)) continue;
 
-    Terrain::PatchFeatures start_features{};
-    double torso_y[3] = {torso_xmat[3], torso_xmat[4], torso_xmat[5]};
-    // Match ComputeBezierTrajectory(): P0 is 5cm forward (torso +X) plus torso lateral offset.
-    double P0_xy[2] = {hip_pos[foot][0] + kHipForwardOffset * torso_x[0] +
-                           lateral * torso_y[0],
-                       hip_pos[foot][1] + kHipForwardOffset * torso_x[1] +
-                           lateral * torso_y[1]};
-    terrain.GetPatchFeatures(data, P0_xy[0], P0_xy[1], start_features);
-
-    double target_pos[3] = {safe_xy[0], safe_xy[1], features.max_height};
-
-    double P3[3] = {safe_xy[0], safe_xy[1],
-                    features.max_height + residual.kFootRadius};
-    // Match ComputeBezierTrajectory(): P0 is 5cm forward (torso +X) plus torso lateral offset.
-    double P0[3] = {P0_xy[0], P0_xy[1],
-                    start_features.max_height + residual.kFootRadius};
-    double target_amp = parameters[residual.amplitude_param_id_];
-
-    double mid_x = 0.5 * (P0[0] + P3[0]);
-    double mid_y = 0.5 * (P0[1] + P3[1]);
-    Terrain::PatchFeatures mid_features{};
-    terrain.GetPatchFeatures(data, mid_x, mid_y, mid_features);
-    double midpoint_z = mid_features.max_height;
-
-    double ground_ref = mju_max(
-        mju_max(start_features.max_height, features.max_height), midpoint_z);
-
-    // Adaptive clearance boost (mirror of ComputeBezierTrajectory).
-    constexpr double kObstacleClearanceGain = 0.5;
-    constexpr double kSlopeClearanceGain = 0.05;
-    constexpr double kMaxExtraClearance = 0.10;
-    double low_ref = mju_min(start_features.max_height, features.max_height);
-    double obstacle_height = mju_max(0.0, ground_ref - low_ref);
-    double min_normal_z = mju_min(
-        mju_min(start_features.normal[2], features.normal[2]),
-        mid_features.normal[2]);
-    double slope_factor = mju_max(0.0, 1.0 - min_normal_z);
-    double extra_clear =
-        kObstacleClearanceGain * obstacle_height + kSlopeClearanceGain * slope_factor;
-    extra_clear = mju_min(extra_clear, kMaxExtraClearance);
-
-    double z_clear = ground_ref + residual.kFootRadius + target_amp + extra_clear;
-    double P1[3] = {P0[0], P0[1], z_clear};
-    double P2[3] = {P3[0], P3[1], z_clear};
-
-    // Use StepHeight-aligned swing phase (matches CostRoughGround) for the tracked point and curve.
-    double swing_phase = 0.0;
-    double duty_ratio = parameters[residual.duty_param_id_];
-    if (duty_ratio < 1.0) {
-      double phase_now = residual.GetPhase(data->time);
-      double footphase_now = 2 * mjPI * Quadruped::ResidualFn::kGaitPhase[gait][foot];
-      double angle = fmod(phase_now + mjPI - footphase_now, 2 * mjPI) - mjPI;
-      angle *= 0.5 / (1.0 - duty_ratio);
-      angle = mju_clip(angle, -mjPI / 2, mjPI / 2);
-      swing_phase = (angle + mjPI / 2) / mjPI;
-    }
-    auto EvalBezier = [&](double t, double out[3]) {
-      double o = 1.0 - t;
-      double o2 = o * o;
-      double t2 = t * t;
-      double bb0 = o2 * o;
-      double bb1 = 3 * o2 * t;
-      double bb2 = 3 * o * t2;
-      double bb3 = t * t2;
-      for (int i = 0; i < 3; ++i) {
-        out[i] = bb0 * P0[i] + bb1 * P1[i] + bb2 * P2[i] + bb3 * P3[i];
-      }
-    };
-
-    // Tracked reference point (purple sphere, twice as large as candidates).
-    double tracked[3];
-    EvalBezier(swing_phase, tracked);
-    double tracked_size[3] = {candidate_size[0] * 2.0, 0, 0};
-    AddGeom(scene, mjGEOM_SPHERE, tracked_size, tracked, /*mat=*/nullptr,
-            rgba_tracked);
-
-    // Draw full Bezier trajectory as a thin orange polyline.
-    constexpr int kBezierSamples = 12;
+    // draw full Bezier trajectory
+    constexpr int kSamples = 12;
     double prev[3];
-    EvalBezier(0.0, prev);
-    for (int i = 1; i <= kBezierSamples; ++i) {
-      double t = static_cast<double>(i) / kBezierSamples;
+    EvalLatchedBezier(foot, 0.0, prev);
+    for (int i = 1; i <= kSamples; ++i) {
+      double t = static_cast<double>(i) / kSamples;
       double curr[3];
-      EvalBezier(t, curr);
+      EvalLatchedBezier(foot, t, curr);
       AddConnector(scene, mjGEOM_CAPSULE, snap_radius, prev, curr, rgba_bezier);
       mju_copy3(prev, curr);
     }
 
-    double ghost_size[3] = {ghost_radius, 0, 0};
-    AddGeom(scene, mjGEOM_SPHERE, ghost_size, nominal_pos, /*mat=*/nullptr,
-            rgba_nominal);
-
-    double target_size[3] = {target_radius, 0, 0};
-    AddGeom(scene, mjGEOM_SPHERE, target_size, target_pos, /*mat=*/nullptr,
-            rgba_safe);
-
-    AddConnector(scene, mjGEOM_CAPSULE, snap_radius, nominal_pos, target_pos,
-                 rgba_snap);
+    // tracked point: either from sensor or evaluated Bezier at swing phase
+    double tracked[3];
+    if (foothold_targets) {
+      mju_copy3(tracked, foothold_targets + 3 * foot);
+    } else {
+      EvalLatchedBezier(foot, swing_phase, tracked);
+    }
+    double tracked_size[3] = {tracked_radius, 0, 0};
+    AddGeom(scene, mjGEOM_SPHERE, tracked_size, tracked, /*mat=*/nullptr,
+            rgba_tracked);
   }
 }
 

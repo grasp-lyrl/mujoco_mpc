@@ -8,6 +8,7 @@
 #include <mujoco/mujoco.h>
 
 #include "mjpc/tasks/quadruped/terrain.h"
+#include "mjpc/tasks/quadruped/footholds.h"
 #include "mjpc/utilities.h"
 
 
@@ -75,6 +76,8 @@ void MjTwin::ResetLocked(const mjModel* model) {
 
 void MjTwin::TransitionLocked(mjModel* model, mjData* data) {
     Quadruped::TransitionLocked(model, data);
+    double duty_ratio = parameters[residual_.duty_param_id_];
+    ComputeFootholds(model, data, residual_, duty_ratio);
     UpdateCollisionBoxes(model, data);
     UpdateUnsafeVisualizationHField(model, data);
   }

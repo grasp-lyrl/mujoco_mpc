@@ -122,6 +122,13 @@ void sensor(const mjModel* model, mjData* data, int stage) {
         sim->agent->ActiveTask()->Residual(model, data, data->sensordata);
       }
     }
+
+    int sid = mj_name2id(model, mjOBJ_SENSOR, "foothold_targets");
+    if (sid >= 0 && model->nuserdata >= 12) {
+      double* dst = data->sensordata + model->sensor_adr[sid];
+      mju_copy(dst, data->userdata, 12);
+    }
+
   }
 }
 

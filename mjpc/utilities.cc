@@ -243,6 +243,10 @@ int ResidualSize(const mjModel* model) {
   bool encountered_nonuser_sensor = false;
   for (int i = 0; i < model->nsensor; i++) {
     if (model->sensor_type[i] == mjSENS_USER) {
+      const char* name = mj_id2name(model, mjOBJ_SENSOR, i);
+      if (name && !strcmp(name, "foothold_targets")) {
+        continue;  // storage-only sensor, not part of cost residuals
+      }
       user_sensor_dim += model->sensor_dim[i];
       if (encountered_nonuser_sensor) {
         mju_error("user type sensors must come before other sensor types");

@@ -1,4 +1,5 @@
 #include "mjpc/tasks/quadruped/quadruped.h"
+#include "mjpc/tasks/quadruped/footholds.h"
 #include "mjpc/utilities.h"
 
 #include <mujoco/mujoco.h>
@@ -17,11 +18,9 @@ int Quadruped::ResidualFn::GaitCost(const mjModel* model, const mjData* data,
     A1Gait gait = GetGait();
     double step[kNumFoot];
     FootStep(step, GetPhase(data->time), gait);
-    double target_amp = parameters_[amplitude_param_id_];
-    // Keep the query anchor consistent with the Bezier P0 shift used in rough terrain.
-    constexpr double kHipForwardOffset = 0.05;  // 5cm along torso +X
-    const double* torso_mat = data->xmat + 9 * torso_body_id_;
-    double torso_x[3] = {torso_mat[0], torso_mat[1], torso_mat[2]};
+
+    // Optional user-sensor foothold targets (expected 12 values: 3 per foot in FL, HL, FR, HR)
+    double* foothold_targets = SensorByName(model, data, "foothold_targets");
 
     for (A1Foot foot : kFootAll) {
         if (is_biped) {  // ignore "hands" in biped mode
@@ -39,107 +38,47 @@ int Quadruped::ResidualFn::GaitCost(const mjModel* model, const mjData* data,
             }
         }
 
-        // Anchor target at the hip and push it 10cm outward along the hip +Y
-        // axis so footholds land laterally away from the body.
-        double* hip_pos = data->xipos + 3 * shoulder_body_id_[foot];
-        const double* hip_mat = data->xmat + 9 * shoulder_body_id_[foot];
-        double lateral = (foot == kFootFR || foot == kFootHR) ? -0.10 : 0.10;
-        double hip_offset_world[3] = {
-            hip_mat[3] * lateral,  // +Y column
-            hip_mat[4] * lateral,
-            hip_mat[5] * lateral};
-        double query[3] = {hip_pos[0] + hip_offset_world[0] + kHipForwardOffset * torso_x[0],
-                           hip_pos[1] + hip_offset_world[1] + kHipForwardOffset * torso_x[1],
-                           hip_pos[2] + hip_offset_world[2]};
+        const bool in_swing = IsFootSwinging(foot);
+        const bool bezier_active = IsBezierActive(foot);
 
-        if (current_mode_ == kModeScramble) {
-            // Behavior (exactly as requested):
-            // - Stance (cylinder==0, touchdown -> liftoff): first 50% under foot, next 50% teleport to +15cm.
-            // - Swing (cylinder>0, liftoff -> touchdown): first 60% hold +15cm, last 40% retract linearly to 0.
-            double duty_ratio = parameters_[duty_param_id_];
-            double scale = 0.0;
-            if (duty_ratio < 1.0) {
-                double global_phase = GetPhase(data->time);
-                double foot_phase = 2 * mjPI * kGaitPhase[gait][foot];
-                double phi_full =
-                    std::fmod(global_phase - foot_phase + 2 * mjPI, 2 * mjPI) /
-                    (2 * mjPI);  // [0,1)
+        if (foothold_targets && bezier_active) { // track Bezier: 3D in swing, XY-only in stance.
+            double* target = foothold_targets + 3 * foot;
+            residual[counter++] = foot_pos[foot][0] - target[0];
+            residual[counter++] = foot_pos[foot][1] - target[1];
+            residual[counter++] = in_swing ? (foot_pos[foot][2] - target[2]) : 0.0;
+        } else if (in_swing) {  // swing but no active Bezier: height-only
+            double query[3] = {foot_pos[foot][0], foot_pos[foot][1], foot_pos[foot][2]};
+            if (current_mode_ == kModeScramble && torso_pos && goal_pos) {
+                // Match the original Scramble behavior: sample ground 15cm toward goal.
+                double torso_to_goal[3];
+                mju_sub3(torso_to_goal, goal_pos, torso_pos);
+                mju_normalize3(torso_to_goal);
 
-                // StepHeight() is nonzero only when |wrapped_phase| < (1-duty_ratio)/2 (around phi_full=0).
-                // That means swing occurs for phi_full in [0, half_swing] U [1-half_swing, 1).
-                const double half_swing = 0.5 * (1.0 - duty_ratio);
-                const bool in_stance = (phi_full >= half_swing && phi_full <= 1.0 - half_swing);
+                // Direction from current foot to goal, in XY only.
+                mju_sub3(torso_to_goal, goal_pos, foot_pos[foot]);
+                torso_to_goal[2] = 0.0;
+                mju_normalize3(torso_to_goal);
+                mju_addToScl3(query, torso_to_goal, 0.15);
+            }
+            double ground_height = Ground(model, data, query);
+            double height_target = ground_height + kFootRadius + step[foot];
+            double height_difference = foot_pos[foot][2] - height_target;
 
-                if (in_stance) {
-                    // stance is contiguous: touchdown at phi_full=half_swing, liftoff at phi_full=1-half_swing
-                    double stance_progress = (phi_full - half_swing) / duty_ratio;  // [0,1]
-                    if (stance_progress < 0.50) {
-                        scale = 0.0;
-                    } else {
-                        // linearly ramp from under-foot to 15cm over the second half of stance
-                        double t = (stance_progress - 0.50) / 0.50;  // [0,1]
-                        t = mju_clip(t, 0.0, 1.0);
-                        scale = t;
-                    }
-                } else {
-                    // swing phase aligned to cylinder: 0 at liftoff, 0.5 at peak, 1 at touchdown
-                    double angle = fmod(global_phase + mjPI - foot_phase, 2 * mjPI) - mjPI;
-                    angle *= 0.5 / (1.0 - duty_ratio);
-                    angle = mju_clip(angle, -mjPI / 2, mjPI / 2);
-                    double swing_phase = (angle + mjPI / 2) / mjPI;  // [0,1]
-
-                    if (swing_phase < 0.60) {
-                        scale = 1.0;
-                    } else {
-                        double t = (swing_phase - 0.60) / 0.40;  // [0,1]
-                        t = mju_clip(t, 0.0, 1.0);
-                        scale = 1.0 - t;
-                    }
-                }
+            if (current_mode_ == kModeScramble) {  // in Scramble, foot higher than target is not penalized
+                height_difference = mju_min(0.0, height_difference);
             }
 
-            double torso_to_goal[3];
-            double* goal = goal_pos;
-            mju_sub3(torso_to_goal, goal, torso_pos);
-            mju_normalize3(torso_to_goal);
-            mju_sub3(torso_to_goal, goal, hip_pos);
-            torso_to_goal[2] = 0;
-            mju_normalize3(torso_to_goal);
-            mju_addToScl3(query, torso_to_goal, 0.15 * scale);
-        }
-
-        bool use_rough = ReinterpretAsInt(parameters_[terrain_type_param_id_]);
-        if (use_rough) {
-            counter = CostRoughGround(model, data, foot, foot_pos[foot], query,
-                                      target_amp, step[foot], residual, counter);
+            residual[counter++] = step[foot] ? height_difference : 0.0;
+            residual[counter++] = 0.0;
+            residual[counter++] = 0.0;
         } else {
-            // flat terrain: mimic original gait cost behavior (swing height from step[foot])
-            counter = CostFlatGround(model, data, foot, foot_pos[foot], query,
-                                     step[foot], residual, counter);
+            // stance and no active Bezier: no residual
+            residual[counter++] = 0.0;
+            residual[counter++] = 0.0;
+            residual[counter++] = 0.0;
         }
     }
 
-    return counter;
-}
-
-int Quadruped::ResidualFn::CostFlatGround(const mjModel* model,
-                                          const mjData* data, A1Foot foot,
-                                          const double foot_pos[3],
-                                          const double query[3],
-                                          double step_amplitude,
-                                          double* residual,
-                                          int counter) const {
-    double ground_height = Ground(model, data, query);
-    double height_target = ground_height + kFootRadius + step_amplitude;
-    double height_difference = foot_pos[2] - height_target;
-
-    if (current_mode_ == kModeScramble) {  // in Scramble, foot higher than target is not penalized
-        height_difference = mju_min(0.0, height_difference);
-    }
-
-    residual[counter++] = step_amplitude ? height_difference : 0.0;
-    residual[counter++] = 0.0;
-    residual[counter++] = 0.0;
     return counter;
 }
 

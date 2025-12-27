@@ -1,6 +1,6 @@
 <mujoco model="Quadruped">
   <include file="../../common.xml"/>
-  <size memory="16M" nconmax="256"/>
+  <size memory="16M" nconmax="256" nuserdata="12"/>
 
   <statistic center="0.5 0.0 0.5" extent="2.5"/>
 
@@ -94,7 +94,9 @@
     <!-- <user name="Angmom" dim="3" user="0 0 0 0"/> -->
 
     <!-- ours -->
-    <user name="NormClear" dim="9" user="2 0 0 5 0.1"/>
+    <!-- <user name="NormClear" dim="9" user="2 0 0 5 0.1"/> -->
+
+    <user name="foothold_targets" dim="12"/>
 
     <jointpos name="pos_FR_hip_joint" joint="FR_hip_joint"/>
     <jointpos name="pos_FR_thigh_joint" joint="FR_thigh_joint"/>

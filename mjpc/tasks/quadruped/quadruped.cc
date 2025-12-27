@@ -48,7 +48,7 @@ void Quadruped::ResidualFn::Residual(const mjModel* model,
   // counter = YawCost(model, data, torso_xmat, residual, counter);        // disabled: keep around for future use
   // counter = AngularMomentumCost(model, data, residual, counter);        // disabled: keep around for future use
 
-  counter = ClearanceCost(model, data, residual, counter);
+  // counter = ClearanceCost(model, data, residual, counter);
 
   // sensor dim sanity check
   CheckSensorDim(model, counter);

@@ -78,11 +78,12 @@ add_library(
   tasks/quadrotor/quadrotor.h
   tasks/quadruped/quadruped.cc
   tasks/quadruped/quadruped.h
+  tasks/quadruped/footholds.cc
+  tasks/quadruped/footholds.h
   tasks/quadruped/costs/balance_cost.cc
   tasks/quadruped/costs/effort_cost.cc
   tasks/quadruped/costs/height_cost.cc
   tasks/quadruped/costs/gait_cost.cc
-  tasks/quadruped/costs/rough_ground_cost.cc
   tasks/quadruped/costs/angmom_cost.cc
   tasks/quadruped/costs/yaw_cost.cc
   tasks/quadruped/costs/clearance_cost.cc

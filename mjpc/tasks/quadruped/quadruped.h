@@ -169,16 +169,6 @@ class Quadruped : public Task {
                 void GetProjectedFoothold(const mjData* data, const double query[3],
                                         double safe_xy[2]) const;
 
-                int CostFlatGround(const mjModel* model, const mjData* data, A1Foot foot,
-                                const double foot_pos[3], const double query[3],
-                                double step_amplitude, double* residual,
-                                int counter) const;
-
-                int CostRoughGround(const mjModel* model, const mjData* data, A1Foot foot,
-                                    const double foot_pos[3], const double query[3],
-                                    double step_amplitude, double current_step_height,
-                                    double* residual, int counter) const;
-
                 //  ============  task state variables, managed by Transition  ============
                 A1Mode current_mode_         = kModeQuadruped;
                 double last_transition_time_ = -1;
