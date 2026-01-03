@@ -45,9 +45,9 @@ void Quadruped::ResidualFn::Residual(const mjModel* model,
   counter = BalanceCost(model, data, height_goal, avg_foot_pos, compos, residual, counter);
   counter = EffortCost(model, data, residual, counter);
   counter = PostureCost(model, data, residual, counter);
-  // counter = YawCost(model, data, torso_xmat, residual, counter);        // disabled: keep around for future use
-  // counter = AngularMomentumCost(model, data, residual, counter);        // disabled: keep around for future use
-
+  // counter = YawCost(model, data, torso_xmat, residual, counter);        
+  // counter = AngularMomentumCost(model, data, residual, counter);
+  
   // counter = ClearanceCost(model, data, residual, counter);
 
   // sensor dim sanity check

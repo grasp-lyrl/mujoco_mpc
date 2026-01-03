@@ -9,6 +9,7 @@
 
 #include "mjpc/tasks/quadruped/quadruped.h"
 #include "mjpc/tasks/quadruped/terrain.h"
+#include "mjpc/tasks/quadruped/footholds.h"
 
 
 namespace mjpc {
@@ -28,6 +29,7 @@ class MjTwin : public Quadruped {
             mjvScene* scene) const override;
 
         Terrain terrain_;
+        FootholdPlanner foothold_planner_;
         
     private:
 

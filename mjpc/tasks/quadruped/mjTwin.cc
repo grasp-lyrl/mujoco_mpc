@@ -22,6 +22,7 @@ void MjTwin::ResetLocked(const mjModel* model) {
     Quadruped::ResetLocked(model);
     
     terrain_.Initialize(model);
+    residual_.foothold_planner_ = &foothold_planner_;
 
     unsafe_hfield_id_ = mj_name2id(model, mjOBJ_HFIELD, "hf133_unsafe");
     unsafe_hfield_dirty_ = true;
@@ -77,7 +78,7 @@ void MjTwin::ResetLocked(const mjModel* model) {
 void MjTwin::TransitionLocked(mjModel* model, mjData* data) {
     Quadruped::TransitionLocked(model, data);
     double duty_ratio = parameters[residual_.duty_param_id_];
-    ComputeFootholds(model, data, residual_, duty_ratio);
+    foothold_planner_.ComputeFootholds(model, data, residual_, duty_ratio);
     UpdateCollisionBoxes(model, data);
     UpdateUnsafeVisualizationHField(model, data);
   }

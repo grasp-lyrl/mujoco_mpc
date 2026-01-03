@@ -7,27 +7,24 @@
 
 namespace mjpc {
 
-void ComputeFootholds(const mjModel* model, mjData* data,
-                      const mjpc::Quadruped::ResidualFn& residual,
-                      double duty_ratio);
+class FootholdPlanner {
+    public:
+        static double SwingPhase(double phase, double footphase, double duty_ratio);
+        static bool IsSwinging(double phase, double footphase, double duty_ratio);
 
+        void ComputeFootholds(const mjModel* model, mjData* data,
+                              const mjpc::Quadruped::ResidualFn& residual,
+                              double duty_ratio);
 
-void ComputeFootholdTarget(const mjModel* model, const mjData* data,
-                           const mjpc::Quadruped::ResidualFn& residual,
-                           mjpc::Quadruped::ResidualFn::A1Foot foot,
-                           mjpc::Quadruped::ResidualFn::A1Gait gait,
-                           double phase, double duty_ratio, double step_height,
-                           const double torso_x[3], double out_target[3]);
+        void EvalBezier(mjpc::Quadruped::ResidualFn::A1Foot foot,
+                        double t, double out[3]) const;
 
+        bool bezier_active_[mjpc::Quadruped::ResidualFn::kNumFoot] = {};
 
-double SwingPhase(double phase, double footphase, double duty_ratio);
-
-bool GetLatchedControlPoints(mjpc::Quadruped::ResidualFn::A1Foot foot,
-                             double ctrl_pts[4][3]);
-bool IsFootSwinging(mjpc::Quadruped::ResidualFn::A1Foot foot);
-bool IsBezierActive(mjpc::Quadruped::ResidualFn::A1Foot foot);
-void EvalLatchedBezier(mjpc::Quadruped::ResidualFn::A1Foot foot, double t,
-                       double out[3]);
+    private:
+        double ctrl_pts_[mjpc::Quadruped::ResidualFn::kNumFoot][4][3] = {};
+        bool in_swing_[mjpc::Quadruped::ResidualFn::kNumFoot] = {};
+};
 
 }  // namespace mjpc
 

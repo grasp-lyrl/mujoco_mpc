@@ -16,8 +16,11 @@ int Quadruped::ResidualFn::GaitCost(const mjModel* model, const mjData* data,
                                     int counter) const {
 
     A1Gait gait = GetGait();
+    const double phase = GetPhase(data->time);
+    const double duty_ratio = parameters_[duty_param_id_];
+
     double step[kNumFoot];
-    FootStep(step, GetPhase(data->time), gait);
+    FootStep(step, phase, gait);
 
     // Optional user-sensor foothold targets (expected 12 values: 3 per foot in FL, HL, FR, HR)
     double* foothold_targets = SensorByName(model, data, "foothold_targets");
@@ -38,10 +41,11 @@ int Quadruped::ResidualFn::GaitCost(const mjModel* model, const mjData* data,
             }
         }
 
-        const bool in_swing = IsFootSwinging(foot);
-        const bool bezier_active = IsBezierActive(foot);
+        const double footphase = 2 * mjPI * kGaitPhase[gait][foot];
+        const bool in_swing = FootholdPlanner::IsSwinging(phase, footphase, duty_ratio);
 
-        if (foothold_targets && bezier_active) { // track Bezier: 3D in swing, XY-only in stance.
+        // track Bezier: 3D in swing, XY-only in stance.
+        if (foothold_targets && foothold_planner_->bezier_active_[foot]) {
             double* target = foothold_targets + 3 * foot;
             residual[counter++] = foot_pos[foot][0] - target[0];
             residual[counter++] = foot_pos[foot][1] - target[1];

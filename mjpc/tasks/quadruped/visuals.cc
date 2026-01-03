@@ -160,7 +160,8 @@ static void VisualizeFootholdLogic(const mjModel* model, const mjData* data,
     }
 
     // rely on latched control points from footholds; only draw when Bezier is active
-    const bool bezier_active = IsBezierActive(foot);
+    const FootholdPlanner* planner = residual.foothold_planner_;
+    const bool bezier_active = planner && planner->bezier_active_[foot];
 
     // reconstruct nominal query (15cm forward) and drop to hfield
     const double* p0 = data->geom_xpos + 3 * residual.foot_geom_id_[foot];
@@ -226,20 +227,18 @@ static void VisualizeFootholdLogic(const mjModel* model, const mjData* data,
     // swing phase aligned with step-height cylinders
     double phase = residual.GetPhase(data->time);
     double footphase = 2 * mjPI * Quadruped::ResidualFn::kGaitPhase[gait][foot];
-    double swing_phase = SwingPhase(phase, footphase, duty_ratio);
+    double swing_phase = FootholdPlanner::SwingPhase(phase, footphase, duty_ratio);
 
-    // get latched control points
-    double ctrl[4][3];
-    if (!GetLatchedControlPoints(foot, ctrl)) continue;
+    if (!planner) continue;
 
     // draw full Bezier trajectory
     constexpr int kSamples = 12;
     double prev[3];
-    EvalLatchedBezier(foot, 0.0, prev);
+    planner->EvalBezier(foot, 0.0, prev);
     for (int i = 1; i <= kSamples; ++i) {
       double t = static_cast<double>(i) / kSamples;
       double curr[3];
-      EvalLatchedBezier(foot, t, curr);
+      planner->EvalBezier(foot, t, curr);
       AddConnector(scene, mjGEOM_CAPSULE, snap_radius, prev, curr, rgba_bezier);
       mju_copy3(prev, curr);
     }
@@ -249,7 +248,7 @@ static void VisualizeFootholdLogic(const mjModel* model, const mjData* data,
     if (foothold_targets) {
       mju_copy3(tracked, foothold_targets + 3 * foot);
     } else {
-      EvalLatchedBezier(foot, swing_phase, tracked);
+      planner->EvalBezier(foot, swing_phase, tracked);
     }
     double tracked_size[3] = {tracked_radius, 0, 0};
     AddGeom(scene, mjGEOM_SPHERE, tracked_size, tracked, /*mat=*/nullptr,

@@ -8,6 +8,8 @@
 
 namespace mjpc {
 
+class FootholdPlanner;
+
 // Normalized swing phase helper shared across gait and visualization logic.
 double CalculateNormalizedPhase(double global_phase, double gait_phase_offset,
                                 double duty_ratio);
@@ -210,6 +212,7 @@ class Quadruped : public Task {
                 double box_half_size_[3] = {0.0, 0.0, 0.0};
                 
                 const Terrain* terrain_ = nullptr;
+                FootholdPlanner* foothold_planner_ = nullptr;
         };
 
         Quadruped() : residual_(this) {}
