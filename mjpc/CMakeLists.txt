@@ -78,6 +78,23 @@ add_library(
   tasks/quadrotor/quadrotor.h
   tasks/quadruped/quadruped.cc
   tasks/quadruped/quadruped.h
+  tasks/quadruped/footholds.cc
+  tasks/quadruped/footholds.h
+  tasks/quadruped/costs/balance_cost.cc
+  tasks/quadruped/costs/effort_cost.cc
+  tasks/quadruped/costs/height_cost.cc
+  tasks/quadruped/costs/gait_cost.cc
+  tasks/quadruped/costs/angmom_cost.cc
+  tasks/quadruped/costs/yaw_cost.cc
+  tasks/quadruped/costs/clearance_cost.cc
+  tasks/quadruped/costs/posture_cost.cc
+  tasks/quadruped/costs/upright_cost.cc
+  tasks/quadruped/costs/position_cost.cc
+  tasks/quadruped/mjTwin.cc
+  tasks/quadruped/mjTwin.h
+  tasks/quadruped/visuals.cc
+  tasks/quadruped/terrain.cc
+  tasks/quadruped/terrain.h
   tasks/swimmer/swimmer.cc
   tasks/swimmer/swimmer.h
   tasks/walker/walker.cc

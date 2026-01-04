@@ -173,23 +173,23 @@ class UiAgentTest(absltest.TestCase):
   def test_get_all_modes(self):
     model_path = (
         pathlib.Path(__file__).parent.parent.parent
-        / "build/mjpc/tasks/quadruped/task_flat.xml"
+        / "build/mjpc/tasks/quadruped/xmls/task_mjTwin.xml"
     )
     model = mujoco.MjModel.from_xml_path(str(model_path))
-    with self.get_agent(task_id="Quadruped Flat", model=model) as agent:
+    with self.get_agent(task_id="mjTwin", model=model) as agent:
       self.assertEqual(
           tuple(agent.get_all_modes()),
-          ("Quadruped", "Biped", "Walk", "Scramble", "Flip"),
+          ("Quadruped", "Biped", "Walk", "Scramble"),
       )
 
   @absltest.skip("asset import issue")
   def test_get_set_mode(self):
     model_path = (
         pathlib.Path(__file__).parent.parent.parent
-        / "build/mjpc/tasks/quadruped/task_flat.xml"
+        / "build/mjpc/tasks/quadruped/xmls/task_mjTwin.xml"
     )
     model = mujoco.MjModel.from_xml_path(str(model_path))
-    with self.get_agent(task_id="Quadruped Flat", model=model) as agent:
+    with self.get_agent(task_id="mjTwin", model=model) as agent:
       agent.set_mode("Walk")
       self.assertEqual(agent.get_mode(), "Walk")
 
@@ -197,10 +197,10 @@ class UiAgentTest(absltest.TestCase):
   def test_set_mode_error(self):
     model_path = (
         pathlib.Path(__file__).parent.parent.parent
-        / "build/mjpc/tasks/quadruped/task_flat.xml"
+        / "build/mjpc/tasks/quadruped/xmls/task_mjTwin.xml"
     )
     model = mujoco.MjModel.from_xml_path(str(model_path))
-    with self.get_agent(task_id="Quadruped Flat", model=model) as agent:
+    with self.get_agent(task_id="mjTwin", model=model) as agent:
       self.assertRaises(grpc.RpcError, lambda: agent.set_mode("Run"))
 
   def get_agent(self, **kwargs) -> agent_lib.Agent:

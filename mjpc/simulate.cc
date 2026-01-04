@@ -32,6 +32,8 @@
 #include <platform_ui_adapter.h>
 #include "mjpc/array_safety.h"
 #include "mjpc/agent.h"
+#include "mjpc/tasks/quadruped/mjTwin.h"
+#include "mjpc/tasks/quadruped/quadruped.h"
 #include "mjpc/utilities.h"
 
 // When launched via an App Bundle on macOS, the working directory is the path
@@ -1670,6 +1672,9 @@ void Simulate::LoadOnRenderThread() {
   }
   this->platform_ui->RefreshMjrContext(this->m, 50*(this->font+1));
 
+  // Ensure geom group 5 is enabled by default (boxes visibility)
+  this->opt.geomgroup[5] = 1;
+
   // clear perturbation state
   this->pert.active = 0;
   this->pert.select = 0;
@@ -2036,6 +2041,9 @@ void Simulate::InitializeRenderLoop() {
   UiModify(&this->ui0, &this->uistate, &this->platform_ui->mjr_context());
   UiModify(&this->ui1, &this->uistate, &this->platform_ui->mjr_context());
 
+  // Enable geom group 5 by default for the first run
+  this->opt.geomgroup[5] = 1;
+
   // set VSync to initial value
   this->platform_ui->SetVSync(this->vsync);
 }
@@ -2098,6 +2106,14 @@ void Simulate::UpdateHField(int hfieldid) {
   }
   hfield_upload_ = hfieldid;
   cond_upload_.wait(lock, [this]() { return hfield_upload_ == -1; });
+  // Rebuild terrain cache (heights + normals) from the physics model so planner and
+  // renderer see updated boxes immediately.
+
+  if (agent && agent->ActiveTask()) {
+    if (auto* twin = dynamic_cast<mjpc::MjTwin*>(agent->ActiveTask())) {
+      twin->terrain_.Initialize(m);
+    }
+  }
 }
 
 void Simulate::UpdateMesh(int meshid) {

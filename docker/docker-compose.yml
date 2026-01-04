@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   mujoco_mpc:
@@ -21,11 +20,15 @@ services:
 
     environment:
       NVIDIA_DRIVER_CAPABILITIES: all
+      # NVIDIA_VISIBLE_DEVICES: all
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: 1
       XDG_RUNTIME_DIR: /tmp/runtime-${USER}
       HOME: /home/dimos
       MUJOCO_GL: glfw
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+      __NV_PRIME_RENDER_OFFLOAD: "1"
+      __VK_LAYER_NV_optimus: NVIDIA_only
 
     security_opt:
       - seccomp=unconfined
@@ -41,6 +44,9 @@ services:
       - $HOME/.gitconfig:/home/dimos/.gitconfig:rw
       - $HOME/.ssh:/home/dimos/.ssh:ro
       - /tmp/runtime-$USER:/tmp/runtime-$USER
+
+    # devices:
+    #   - /dev/dri:/dev/dri
 
     privileged: true
     runtime: nvidia

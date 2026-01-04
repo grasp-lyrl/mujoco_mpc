@@ -122,6 +122,13 @@ void sensor(const mjModel* model, mjData* data, int stage) {
         sim->agent->ActiveTask()->Residual(model, data, data->sensordata);
       }
     }
+
+    int sid = mj_name2id(model, mjOBJ_SENSOR, "foothold_targets");
+    if (sid >= 0 && model->nuserdata >= 12) {
+      double* dst = data->sensordata + model->sensor_adr[sid];
+      mju_copy(dst, data->userdata, 12);
+    }
+
   }
 }
 
@@ -422,9 +429,6 @@ MjpcApp::MjpcApp(std::vector<std::shared_ptr<mjpc::Task>> tasks, int task_id) {
   m = LoadModel(sim->agent.get(), *sim);
   if (m) d = mj_makeData(m);
 
-  // set home keyframe
-  int home_id = mj_name2id(m, mjOBJ_KEY, "home");
-  if (home_id >= 0) mj_resetDataKeyframe(m, d, home_id);
 
   sim->mnew = m;
   sim->dnew = d;
@@ -438,7 +442,14 @@ MjpcApp::MjpcApp(std::vector<std::shared_ptr<mjpc::Task>> tasks, int task_id) {
   sim->agent->estimator_enabled = absl::GetFlag(FLAGS_estimator_enabled);
   sim->agent->Initialize(m);
   sim->agent->Allocate();
-  sim->agent->Reset();
+  // set home keyframe (match GUI reload behavior) and reset agent with current ctrl
+  {
+    int home_id = mj_name2id(m, mjOBJ_KEY, "home");
+    if (home_id >= 0) {
+      mj_resetDataKeyframe(m, d, home_id);
+    }
+  }
+  sim->agent->Reset(d->ctrl);
   sim->agent->PlotInitialize();
 
   // Disable plots by default for Quadruped Pose task

@@ -1,0 +1,70 @@
+<mujoco>
+
+  <default>
+    <!-- Feet -->
+    <default class="boxfoot">
+      <geom type="box" size="0.03 0.03 0.02"
+            rgba="0.2 0.8 0.2 1" group="5" contype="0"/>
+    </default>
+    <!-- Lidar -->
+    <default class="boxlidar">
+      <geom type="box" size="0.03 0.03 0.02"
+            rgba="1 0 0 1" group="4" contype="0"/>
+    </default>
+    <!-- Hips & Knees -->
+    <default class="boxjoint">
+      <geom type="box" size="0.03 0.03 0.02"
+            rgba="0.6 0.3 0.0 0.7" group="4" contype="0"/>
+    </default>
+  </default>
+
+  <worldbody>
+    
+    <body name="box_FL" mocap="true" pos="0 0 0">
+      <geom name="box_FL_geom" class="boxfoot" conaffinity="2"/>
+    </body>
+    <body name="box_FR" mocap="true" pos="0 0 0">
+      <geom name="box_FR_geom" class="boxfoot" conaffinity="4"/>
+    </body>
+    <body name="box_HL" mocap="true" pos="0 0 0">
+      <geom name="box_HL_geom" class="boxfoot" conaffinity="8"/>
+    </body>
+    <body name="box_HR" mocap="true" pos="0 0 0">
+      <geom name="box_HR_geom" class="boxfoot" conaffinity="16"/>
+    </body>
+
+    <body name="box_lidar" mocap="true" pos="0 0 0">
+      <geom name="box_lidar_geom" class="boxlidar" conaffinity="128"/>
+    </body>
+
+    <!-- Hips: match hip collision geom names -->
+    <body name="box_FL_hip_cyl" mocap="true" pos="0 0 0">
+      <geom name="box_FL_hip_cyl_geom" class="boxjoint" conaffinity="256"/>
+    </body>
+    <body name="box_FR_hip_cyl" mocap="true" pos="0 0 0">
+      <geom name="box_FR_hip_cyl_geom" class="boxjoint" conaffinity="4096"/>
+    </body>
+    <body name="box_HL_hip_cyl" mocap="true" pos="0 0 0">
+      <geom name="box_HL_hip_cyl_geom" class="boxjoint" conaffinity="65536"/>
+    </body>
+    <body name="box_HR_hip_cyl" mocap="true" pos="0 0 0">
+      <geom name="box_HR_hip_cyl_geom" class="boxjoint" conaffinity="1048576"/>
+    </body>
+
+    <!-- Knees: align to calf collision geoms (use first calf cylinder) -->
+    <body name="box_FL_calf_cyl1" mocap="true" pos="0 0 0">
+      <geom name="box_FL_calf_cyl1_geom" class="boxjoint" conaffinity="1024"/>
+    </body>
+    <body name="box_FR_calf_cyl1" mocap="true" pos="0 0 0">
+      <geom name="box_FR_calf_cyl1_geom" class="boxjoint" conaffinity="16384"/>
+    </body>
+    <body name="box_HL_calf_cyl1" mocap="true" pos="0 0 0">
+      <geom name="box_HL_calf_cyl1_geom" class="boxjoint" conaffinity="262144"/>
+    </body>
+    <body name="box_HR_calf_cyl1" mocap="true" pos="0 0 0">
+      <geom name="box_HR_calf_cyl1_geom" class="boxjoint" conaffinity="4194304"/>
+    </body>
+  </worldbody>
+</mujoco>
+
+
