@@ -27,7 +27,9 @@ void Quadruped::ModifyScene(const mjModel* model, const mjData* data,
     // current foot positions
     double* foot_pos[ResidualFn::kNumFoot];
     for (ResidualFn::A1Foot foot : ResidualFn::kFootAll) {
-        foot_pos[foot] = data->geom_xpos + 3 * residual_.foot_geom_id_[foot];
+        int gid = residual_.foot_geom_id_[foot];
+        if (gid < 0) return;  // not initialized yet (e.g., during reload/reset)
+        foot_pos[foot] = data->geom_xpos + 3 * gid;
     }
     
     // stance and flight positions
@@ -246,7 +248,14 @@ static void VisualizeFootholdLogic(const mjModel* model, const mjData* data,
     // tracked point: either from sensor or evaluated Bezier at swing phase
     double tracked[3];
     if (foothold_targets) {
-      mju_copy3(tracked, foothold_targets + 3 * foot);
+      const double* src = foothold_targets + 3 * foot;
+      if (src[0] == 0.0 && src[1] == 0.0 && src[2] == 0.0 && planner) {
+        // If the sensor data hasn't been updated yet, fall back to the curve
+        // to avoid a flicker at the origin.
+        planner->EvalBezier(foot, swing_phase, tracked);
+      } else {
+        mju_copy3(tracked, src);
+      }
     } else {
       planner->EvalBezier(foot, swing_phase, tracked);
     }
