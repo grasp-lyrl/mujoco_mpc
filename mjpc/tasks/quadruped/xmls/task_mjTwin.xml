@@ -22,7 +22,7 @@
     <text name="residual_list_Gait switch" data="Manual|Automatic"/>
     <numeric name="residual_Cadence" data="1.0 0 4"/>
     <numeric name="residual_Amplitude" data="0.03 0 0.2"/>
-    <numeric name="residual_Duty ratio" data="0.75 0 1"/>
+    <numeric name="residual_Duty ratio" data="0.65 0 1"/>
     <numeric name="residual_select_Biped type" data="0"/>
     <text name="residual_list_Biped type" data="Foot Stand|Hand Stand"/>
     <numeric name="residual_select_Terrain Type" data="1 0 1"/>
@@ -52,7 +52,7 @@
     <material name="unsafe_overlay_mat" rgba="1.0 0.141 0.0 0.6"/>
 
     <hfield name="hf133_unsafe" file="../pngs/white_4cm.png" size="3 3 0.30 0.0001"/>
-    <!-- <hfield name="hf133" file="../pngs/hfield_smooth.png" size="3 3 0.15 0.1"/> -->
+    <!-- <hfield name="hf133" file="../pngs/hfield_real.png" size="3 3 0.15 0.1"/> -->
     <hfield name="hf133" file="../pngs/black_4cm.png" size="3 3 0.30 0.1"/>
     
 
@@ -70,7 +70,7 @@
     <geom name="terrain" pos="1.5 0 0.0" type="hfield" hfield="hf133" material="terrain_mat" contype="0" conaffinity="0" condim="3"/>
     <geom name="terrain_unsafe_overlay" pos="1.5 0 -0.05" type="hfield" hfield="hf133_unsafe" material="unsafe_overlay_mat" contype="0" conaffinity="0" condim="3" group="5"/>
 
-    <body name="goal" mocap="true" pos="2.5 0 0.40">
+    <body name="goal" mocap="true" pos="2.8 0 0.36">
       <geom size="0.05" contype="0" conaffinity="0" rgba="0.678 0.847 0.902 0.7" group="2"/>
     </body>
   </worldbody>

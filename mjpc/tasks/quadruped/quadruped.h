@@ -81,7 +81,7 @@ class Quadruped : public Task {
                     // duty ratio  cadence  amplitude  balance   upright   height
                     // unitless    Hz       meter      unitless  unitless  unitless
                     {1,          1,       0,         0,        1,        1},      // stand
-                    {0.75,       1,       0.03,      0.2,      1,        1},      // walk
+                    {0.65,       1,       0.03,      0.2,      1,        1},      // walk
                     {0.8,        1,       0.03,      0.2,      1,        1},      // trot
                     {0.4,        4,       0.05,      0.03,     0.5,      0.2},    // canter
                     {0.3,        3.5,     0.10,      0.03,     0.2,      0.1}     // gallop
