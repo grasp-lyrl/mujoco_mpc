@@ -4,7 +4,7 @@
     <!-- Feet -->
     <default class="boxfoot">
       <geom type="box" size="0.03 0.03 0.02"
-            rgba="0.2 0.8 0.2 1" group="5" contype="0"/>
+            rgba="0.2 0.8 0.2 1" group="5" contype="0" margin="0.01"/>
     </default>
     <!-- Lidar -->
     <default class="boxlidar">
