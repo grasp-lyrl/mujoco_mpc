@@ -44,12 +44,13 @@ int Quadruped::ResidualFn::GaitCost(const mjModel* model, const mjData* data,
         const double footphase = 2 * mjPI * kGaitPhase[gait][foot];
         const bool in_swing = FootholdPlanner::IsSwinging(phase, footphase, duty_ratio);
 
-        // track Bezier: 3D in swing, XY-only in stance.
+        // track Bezier: 3D in swing, XY + ceiling on z in stance.
         if (foothold_targets && foothold_planner_->bezier_active_[foot]) {
             double* target = foothold_targets + 3 * foot;
             residual[counter++] = foot_pos[foot][0] - target[0];
             residual[counter++] = foot_pos[foot][1] - target[1];
-            residual[counter++] = in_swing ? (foot_pos[foot][2] - target[2]) : 0.0;
+            double z_error = foot_pos[foot][2] - target[2];
+            residual[counter++] = in_swing ? z_error : mju_max(0.0, z_error);
         } else if (in_swing) {  // swing but no active Bezier: height-only
             double query[3] = {foot_pos[foot][0], foot_pos[foot][1], foot_pos[foot][2]};
             if (current_mode_ == kModeScramble && torso_pos && goal_pos) {

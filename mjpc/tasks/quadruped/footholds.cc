@@ -102,7 +102,7 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
 
         // If the world is globally safe, immediately drop any latched Beziers and
         // revert to the original "height-only in swing" behavior.
-        if (!global_unsafe) {
+        if (!global_unsafe && !now_swing) {
             bezier_active_[foot] = false;
         }
 
