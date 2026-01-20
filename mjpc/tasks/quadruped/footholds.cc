@@ -106,14 +106,95 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
             bezier_active_[foot] = false;
         }
 
-        // stance: keep holding the last landing target if a Bezier was latched,
-        // but do not clear the latch here (it is released at the next swing start).
+        // stance: release the previous swing's curve, and latch a new one only in stance.
         if (!now_swing) {
-            in_swing_[foot] = false;
+            if (in_swing_[foot]) {
+                // Touchdown: clear the swing curve so we can re-latch in stance.
+                in_swing_[foot] = false;
+                bezier_active_[foot] = false;
+            } else {
+                in_swing_[foot] = false;
+            }
+
+            // If unsafe, design and latch the Bezier during stance so it is ready
+            // by the next swing (gait clock).
+            if (global_unsafe && !bezier_active_[foot]) {
+                double query[3] = {foot_pos[0], foot_pos[1], foot_pos[2]};
+                mju_addToScl3(query, torso_x, 0.15);  // nominal forward landing 15cm forward
+                const bool unsafe = unsafe_ahead[foot];
+
+                // Global unsafe is true:
+                // - if this foot is unsafe: project landing to nearest safe point around nominal query.
+                // - if this foot is safe: use nominal query as the landing (trivial Bezier).
+                if (unsafe) {
+                    const double radii[] = {0.03, 0.05, 0.07, 0.09, 0.12};
+                    const int kNumCandidates = 8;
+                    double best_dist2 = std::numeric_limits<double>::infinity();
+                    double best_xy[2] = {query[0], query[1]};
+                    for (double rad : radii) {
+                        for (int i = 0; i < kNumCandidates; ++i) {
+                            double ang = 2.0 * mjPI * (static_cast<double>(i) / kNumCandidates);
+                            double cx = query[0] + rad * mju_cos(ang);
+                            double cy = query[1] + rad * mju_sin(ang);
+                            if (residual.terrain_->IsSafe(data, cx, cy)) {
+                                double dx = cx - query[0];
+                                double dy = cy - query[1];
+                                double d2 = dx * dx + dy * dy;
+                                if (d2 < best_dist2) {
+                                    best_dist2 = d2;
+                                    best_xy[0] = cx;
+                                    best_xy[1] = cy;
+                                }
+                            }
+                        }
+                    }
+
+                    query[0] = best_xy[0];
+                    query[1] = best_xy[1];
+                    double gz = 0.0;
+                    residual.terrain_->GetHeightFromWorld(data, query[0], query[1], gz);
+                    query[2] = gz + Quadruped::ResidualFn::kFootRadius;
+                    mju_copy3(ctrl_pts_[foot][3], query);
+                } else {
+                    // Trivial landing: just drop the nominal query to the ground.
+                    residual.terrain_->GetHeightFromWorld(data, query[0], query[1], query[2]);
+                    query[2] += Quadruped::ResidualFn::kFootRadius;
+                    mju_copy3(ctrl_pts_[foot][3], query);
+                }
+
+                // set control points based on current foot pos and chosen landing
+                mju_copy3(ctrl_pts_[foot][0], foot_pos);
+
+                // clearance height: max ground height along the path (4 samples) plus either
+                // swing amplitude or 2cm, whichever is larger.
+                double max_ground = query[2];
+                residual.terrain_->GetHeightFromWorld(data, query[0], query[1], max_ground);
+                for (double t : {0.00, 0.33, 0.66, 1.00}) {
+                    double sample[3];
+                    sample[0] = (1.0 - t) * foot_pos[0] + t * query[0];
+                    sample[1] = (1.0 - t) * foot_pos[1] + t * query[1];
+                    sample[2] = foot_pos[2];
+                    double gz = sample[2];
+                    residual.terrain_->GetHeightFromWorld(data, sample[0], sample[1], gz);
+                    max_ground = mju_max(max_ground, gz);
+                }
+                max_ground += Quadruped::ResidualFn::kFootRadius;
+                const double lift = mju_max(mju_abs(swing_height), 0.02);
+                const double z_clear_final = max_ground + lift;
+
+                ctrl_pts_[foot][1][0] = ctrl_pts_[foot][0][0];
+                ctrl_pts_[foot][1][1] = ctrl_pts_[foot][0][1];
+                ctrl_pts_[foot][1][2] = z_clear_final;
+                ctrl_pts_[foot][2][0] = ctrl_pts_[foot][3][0];
+                ctrl_pts_[foot][2][1] = ctrl_pts_[foot][3][1];
+                ctrl_pts_[foot][2][2] = z_clear_final;
+
+                bezier_active_[foot] = true;
+            }
+
             if (bezier_active_[foot]) {
-                // On touchdown, latch the true contact point as the stance target.
-                mju_copy3(ctrl_pts_[foot][3], foot_pos);
-                mju_copy3(targets + 3 * foot, ctrl_pts_[foot][3]);  // hold landing
+                // Hold the current foot position during stance.
+                mju_copy3(targets + 3 * foot, foot_pos);
                 mju_copy3(data->userdata + 3 * foot, targets + 3 * foot);
             } else {
                 mju_zero3(targets + 3 * foot);
@@ -122,10 +203,9 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
             continue;
         }
 
-        // swing entry: release any previously-held landing so a new curve can be designed
+        // swing entry: mark swing, but do not latch a new curve during swing.
         if (!in_swing_[foot]) {
             in_swing_[foot] = true;
-            bezier_active_[foot] = false;
         }
 
         double swing_phase = FootholdPlanner::SwingPhase(phase, footphase, duty_ratio);
@@ -137,88 +217,9 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
             continue;
         }
 
-        // No latched Bezier yet: either latch due to per-foot unsafe, or (if any foot
-        // is unsafe) latch a trivial Bezier so all feet track a consistent trajectory.
-        double query[3] = {foot_pos[0], foot_pos[1], foot_pos[2]};
-        mju_addToScl3(query, torso_x, 0.15);  // nominal forward landing 15cm forward
-        const bool unsafe = unsafe_ahead[foot];
-
-        if (!global_unsafe) {
-            // globally safe: no 3D targets; let gait cost be height-only in swing
-            mju_zero3(targets + 3 * foot);
-            mju_zero3(data->userdata + 3 * foot);
-            continue;
-        }
-
-        // Global unsafe is true:
-        // - if this foot is unsafe: project landing to nearest safe point around nominal query.
-        // - if this foot is safe: use nominal query as the landing (trivial Bezier).
-        if (unsafe) {
-            const double radii[] = {0.03, 0.05, 0.07, 0.09, 0.12};
-            const int kNumCandidates = 8;
-            double best_dist2 = std::numeric_limits<double>::infinity();
-            double best_xy[2] = {query[0], query[1]};
-            for (double rad : radii) {
-                for (int i = 0; i < kNumCandidates; ++i) {
-                    double ang = 2.0 * mjPI * (static_cast<double>(i) / kNumCandidates);
-                    double cx = query[0] + rad * mju_cos(ang);
-                    double cy = query[1] + rad * mju_sin(ang);
-                    if (residual.terrain_->IsSafe(data, cx, cy)) {
-                        double dx = cx - query[0];
-                        double dy = cy - query[1];
-                        double d2 = dx * dx + dy * dy;
-                        if (d2 < best_dist2) {
-                            best_dist2 = d2;
-                            best_xy[0] = cx;
-                            best_xy[1] = cy;
-                        }
-                    }
-                }
-            }
-
-            query[0] = best_xy[0];
-            query[1] = best_xy[1];
-            double gz = 0.0;
-            residual.terrain_->GetHeightFromWorld(data, query[0], query[1], gz);
-            query[2] = gz + Quadruped::ResidualFn::kFootRadius;
-            mju_copy3(ctrl_pts_[foot][3], query);
-        } else {
-            // Trivial landing: just drop the nominal query to the ground.
-            residual.terrain_->GetHeightFromWorld(data, query[0], query[1], query[2]);
-            query[2] += Quadruped::ResidualFn::kFootRadius;
-            mju_copy3(ctrl_pts_[foot][3], query);
-        }
-
-        // set control points based on current foot pos and chosen landing
-        mju_copy3(ctrl_pts_[foot][0], foot_pos);
-
-        // clearance height: max ground height along the path (4 samples) plus either
-        // swing amplitude or 2cm, whichever is larger.
-        double max_ground = query[2];
-        residual.terrain_->GetHeightFromWorld(data, query[0], query[1], max_ground);
-        for (double t : {0.00, 0.33, 0.66, 1.00}) {
-            double sample[3];
-            sample[0] = (1.0 - t) * foot_pos[0] + t * query[0];
-            sample[1] = (1.0 - t) * foot_pos[1] + t * query[1];
-            sample[2] = foot_pos[2];
-            double gz = sample[2];
-            residual.terrain_->GetHeightFromWorld(data, sample[0], sample[1], gz);
-            max_ground = mju_max(max_ground, gz);
-        }
-        max_ground += Quadruped::ResidualFn::kFootRadius;
-        const double lift = mju_max(mju_abs(swing_height), 0.02);
-        const double z_clear_final = max_ground + lift;
-
-        ctrl_pts_[foot][1][0] = ctrl_pts_[foot][0][0];
-        ctrl_pts_[foot][1][1] = ctrl_pts_[foot][0][1];
-        ctrl_pts_[foot][1][2] = z_clear_final;
-        ctrl_pts_[foot][2][0] = ctrl_pts_[foot][3][0];
-        ctrl_pts_[foot][2][1] = ctrl_pts_[foot][3][1];
-        ctrl_pts_[foot][2][2] = z_clear_final;
-
-        EvalBezier(foot, swing_phase, targets + 3 * foot);
-        mju_copy3(data->userdata + 3 * foot, targets + 3 * foot);
-        bezier_active_[foot] = true;
+        // No latched Bezier yet: do not design during swing.
+        mju_zero3(targets + 3 * foot);
+        mju_zero3(data->userdata + 3 * foot);
     }
 }
 
