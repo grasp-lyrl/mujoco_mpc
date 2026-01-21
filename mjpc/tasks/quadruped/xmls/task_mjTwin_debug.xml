@@ -1,0 +1,183 @@
+<mujoco model="Quadruped">
+  <include file="../../common.xml"/>
+  <size memory="16M" nconmax="256" nuserdata="12"/>
+
+  <statistic center="0.5 0.0 0.5" extent="2.5"/>
+
+  <custom>
+    <!-- agent -->
+    <text name="task_transition" data="Quadruped|Biped|Scramble"/>
+    <numeric name="agent_planner" data="2"/>
+    <numeric name="agent_horizon" data="0.3"/>
+    <numeric name="agent_timestep" data="0.01"/>
+    <numeric name="sampling_spline_points" data="3"/>
+    <numeric name="sampling_trajectories" data="60"/>
+    <numeric name="sampling_exploration" data="0.04"/>
+    <numeric name="gradient_spline_points" data="5"/>
+
+    <!-- residual -->
+    <numeric name="residual_select_Gait" data="1"/>
+    <text name="residual_list_Gait" data="Stand|Walk|Trot|Canter|Gallop"/>
+    <numeric name="residual_select_Gait switch" data="0"/>
+    <text name="residual_list_Gait switch" data="Manual|Automatic"/>
+    <numeric name="residual_Cadence" data="1.0 0 4"/>
+    <numeric name="residual_Amplitude" data="0.03 0 0.2"/>
+    <numeric name="residual_Duty ratio" data="0.65 0 1"/>
+    <numeric name="residual_select_Biped type" data="0"/>
+    <text name="residual_list_Biped type" data="Foot Stand|Hand Stand"/>
+    <numeric name="residual_select_Terrain Type" data="1 0 1"/>
+    <text name="residual_list_Terrain Type" data="Flat|Rough"/>
+    <numeric name="residual_Heading" data="0 -3.14 3.14"/>
+    <numeric name="residual_Arm posture" data=".03 0 1"/>
+
+    <!-- estimator -->
+    <numeric name="estimator" data="1"/>
+    <numeric name="estimator_sensor_start" data="9"/>
+    <numeric name="estimator_number_sensor" data="21"/>
+    <numeric name="estimator_timestep" data="0.005"/>
+    <numeric name="batch_configuration_length" data="3"/>
+    <numeric name="batch_scale_prior" data="1.0e-3"/>
+    
+    <!-- planner defaults -->
+    <numeric name="derivative_skip" data="3"/>
+  </custom>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.26 0.36 0.48" rgb2="0.16 0.26 0.38" markrgb="0.70 0.76 0.82" width="300" height="300"/>
+    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge" rgb1="0.68 0.80 1.0" rgb2="0.78 0.90 1.0" markrgb="0.0 0.0 1.0" width="300" height="300"/>
+
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.04"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true" texrepeat="24 24" reflectance="0.05" rgba="0.85 0.92 1.00 1"/>
+    <material name="unsafe_overlay_mat" rgba="1.0 0.141 0.0 0.6"/>
+
+    <hfield name="hf133_unsafe" file="../pngs/white_4cm.png" size="3 3 0.30 0.0001"/>
+    <hfield name="hf133" file="../pngs/hfield_real.png" size="3 3 0.15 0.1"/>
+    <!-- <hfield name="hf133" file="../pngs/black_4cm.png" size="3 3 0.30 0.1"/> -->
+    
+
+  </asset>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-90" elevation="-20"/>
+  </visual>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" diffuse="0.5 0.5 0.5" specular="0.3 0.3 0.3" directional="true" castshadow="false"/>
+
+    <geom name="terrain" pos="1.5 0 0.0" type="hfield" hfield="hf133" material="terrain_mat" contype="0" conaffinity="0" condim="3"/>
+    <geom name="terrain_unsafe_overlay" pos="1.5 0 -0.05" type="hfield" hfield="hf133_unsafe" material="unsafe_overlay_mat" contype="0" conaffinity="0" condim="3" group="5"/>
+
+    <body name="goal" mocap="true" pos="2.8 0 0.36">
+      <geom size="0.05" contype="0" conaffinity="0" rgba="0.678 0.847 0.902 0.7" group="2"/>
+    </body>
+  </worldbody>
+
+  <include file="go2.xml" />
+  <include file="collisions.xml" />
+
+  <keyframe>
+    <key name="home" qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"
+      ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>
+  </keyframe>
+
+<!-- Sensors -->
+<sensor> 
+    <user name="Upright" dim="3" user="6 1 0 3 0.05"/>
+    <!-- <user name="Height" dim="1" user="6 1 0 3 0.04"/> -->
+    <user name="Position" dim="3" user="2 0.2 0 0.5 0.1"/>
+    <user name="Gait" dim="12" user="6 2 0 10 0.03"/>
+    <user name="Balance" dim="2" user="2 0.2 0 0.3 0.1"/>
+    <user name="Effort" dim="12" user="0 0.08 0.0 0.1"/>
+    <user name="Posture" dim="12" user="0 0.02 0.0 0.1"/>
+    <!-- <user name="Orientation" dim="2" user="0 0 0 0"/> -->
+    <!-- <user name="Angmom" dim="3" user="0 0 0 0"/> -->
+
+    <!-- ours -->
+    <!-- <user name="NormClear" dim="9" user="2 0 0 5 0.1"/> -->
+
+    <user name="foothold_targets" dim="12"/>
+
+    <jointpos name="pos_FR_hip_joint" joint="FR_hip_joint"/>
+    <jointpos name="pos_FR_thigh_joint" joint="FR_thigh_joint"/>
+    <jointpos name="pos_FR_calf_joint" joint="FR_calf_joint"/>
+    <jointpos name="pos_FL_hip_joint" joint="FL_hip_joint"/>
+    <jointpos name="pos_FL_thigh_joint" joint="FL_thigh_joint"/>
+    <jointpos name="pos_FL_calf_joint" joint="FL_calf_joint"/>
+    <jointpos name="pos_HR_hip_joint" joint="HR_hip_joint"/>
+    <jointpos name="pos_HR_thigh_joint" joint="HR_thigh_joint"/>
+    <jointpos name="pos_HR_calf_joint" joint="HR_calf_joint"/>
+    <jointpos name="pos_HL_hip_joint" joint="HL_hip_joint"/>
+    <jointpos name="pos_HL_thigh_joint" joint="HL_thigh_joint"/>
+    <jointpos name="pos_HL_calf_joint" joint="HL_calf_joint"/>
+
+    <jointvel name="FR_hip_vel" joint="FR_hip_joint" />
+    <jointvel name="FR_thigh_vel" joint="FR_thigh_joint" />
+    <jointvel name="FR_calf_vel" joint="FR_calf_joint" />
+    <jointvel name="FL_hip_vel" joint="FL_hip_joint" />
+    <jointvel name="FL_thigh_vel" joint="FL_thigh_joint" />
+    <jointvel name="FL_calf_vel" joint="FL_calf_joint" />
+    <jointvel name="HR_hip_vel" joint="HR_hip_joint" />
+    <jointvel name="HR_thigh_vel" joint="HR_thigh_joint" />
+    <jointvel name="HR_calf_vel" joint="HR_calf_joint" />
+    <jointvel name="HL_hip_vel" joint="HL_hip_joint" />
+    <jointvel name="HL_thigh_vel" joint="HL_thigh_joint" />
+    <jointvel name="HL_calf_vel" joint="HL_calf_joint" />
+
+    <jointactuatorfrc name="FR_hip_torque" joint="FR_hip_joint" noise="0.01" />
+    <jointactuatorfrc name="FR_thigh_torque" joint="FR_thigh_joint" noise="0.01" />
+    <jointactuatorfrc name="FR_calf_torque" joint="FR_calf_joint" noise="0.01" />
+    <jointactuatorfrc name="FL_hip_torque" joint="FL_hip_joint" noise="0.01" />
+    <jointactuatorfrc name="FL_thigh_torque" joint="FL_thigh_joint" noise="0.01" />
+    <jointactuatorfrc name="FL_calf_torque" joint="FL_calf_joint" noise="0.01" />
+    <jointactuatorfrc name="HR_hip_torque" joint="HR_hip_joint" noise="0.01" />
+    <jointactuatorfrc name="HR_thigh_torque" joint="HR_thigh_joint" noise="0.01" />
+    <jointactuatorfrc name="HR_calf_torque" joint="HR_calf_joint" noise="0.01" />
+    <jointactuatorfrc name="HL_hip_torque" joint="HL_hip_joint" noise="0.01" />
+    <jointactuatorfrc name="HL_thigh_torque" joint="HL_thigh_joint" noise="0.01" />
+    <jointactuatorfrc name="HL_calf_torque" joint="HL_calf_joint" noise="0.01" />
+
+    <framequat name="imu_quat" objtype="site" objname="imu"/>
+    <gyro name="imu_gyro" site="imu"/>
+    <accelerometer name="imu_acc" site="imu"/>
+
+    <framepos name="frame_pos" objtype="site" objname="imu"/>
+    <framelinvel name="frame_vel" objtype="site" objname="imu"/>
+
+    <!-- mjpc -->
+    <framepos name="torso_pos" objtype="site" objname="torso"/>
+    <framepos name="FR_pos" objtype="site" objname="FR"/>
+    <framepos name="FL_pos" objtype="site" objname="FL"/>
+    <framepos name="HR_pos" objtype="site" objname="HR"/>
+    <framepos name="HL_pos" objtype="site" objname="HL"/>
+    <framepos name="trace0" objtype="site" objname="head"/>
+
+    <touch name="FR_touch" site="FR"/>
+    <touch name="FL_touch" site="FL"/>
+    <touch name="HR_touch" site="HR"/>
+    <touch name="HL_touch" site="HL"/>
+
+    <subtreecom name="torso_subtreecom" body="trunk"/>
+    <subtreelinvel name="torso_subtreelinvel" body="trunk"/>
+    <subtreelinvel name="torso_angmom" body="trunk"/>
+</sensor>
+
+
+<actuator>	
+	<position class="abduction" name="FR_hip" joint="FR_hip_joint"/>
+	<position class="front_hip" name="FR_thigh" joint="FR_thigh_joint"/>
+	<position class="knee" name="FR_calf" joint="FR_calf_joint"/>
+	<position class="abduction" name="FL_hip" joint="FL_hip_joint"/>
+	<position class="front_hip" name="FL_thigh" joint="FL_thigh_joint"/>
+	<position class="knee" name="FL_calf" joint="FL_calf_joint"/>
+	<position class="abduction" name="HR_hip" joint="HR_hip_joint"/>
+	<position class="back_hip" name="HR_thigh" joint="HR_thigh_joint"/>
+	<position class="knee" name="HR_calf" joint="HR_calf_joint"/>
+	<position class="abduction" name="HL_hip" joint="HL_hip_joint"/>
+	<position class="back_hip" name="HL_thigh" joint="HL_thigh_joint"/>
+	<position class="knee" name="HL_calf" joint="HL_calf_joint"/>
+</actuator>
+
+</mujoco>

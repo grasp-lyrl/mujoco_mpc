@@ -20,9 +20,9 @@ class FootholdPlanner {
                         double t, double out[3]) const;
 
         bool bezier_active_[mjpc::Quadruped::ResidualFn::kNumFoot] = {};
+        double ctrl_pts_[mjpc::Quadruped::ResidualFn::kNumFoot][4][3] = {};
 
     private:
-        double ctrl_pts_[mjpc::Quadruped::ResidualFn::kNumFoot][4][3] = {};
         bool in_swing_[mjpc::Quadruped::ResidualFn::kNumFoot] = {};
 };
 

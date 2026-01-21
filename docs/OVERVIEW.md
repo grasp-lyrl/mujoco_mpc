@@ -252,6 +252,7 @@ The repository includes additional example tasks:
 - [Acrobot](../mjpc/tasks/acrobot/task.xml)
 - [Particle](../mjpc/tasks/particle/task.xml)
 - Quadruped [mjTwin](../mjpc/tasks/quadruped/xmls/task_mjTwin.xml)
+- Quadruped [mjTwin_debug](../mjpc/tasks/quadruped/xmls/task_mjTwin_debug.xml)
 - [In-Hand Manipulation](../mjpc/tasks/hand/task.xml)
 - [Quadrotor](../mjpc/tasks/quadrotor/task.xml)
 - [Panda Arm Manipulation](../mjpc/tasks/panda/task.xml)

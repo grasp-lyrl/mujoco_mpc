@@ -92,6 +92,8 @@ add_library(
   tasks/quadruped/costs/position_cost.cc
   tasks/quadruped/mjTwin.cc
   tasks/quadruped/mjTwin.h
+  tasks/quadruped/mjTwin_debug.cc
+  tasks/quadruped/mjTwin_debug.h
   tasks/quadruped/visuals.cc
   tasks/quadruped/terrain.cc
   tasks/quadruped/terrain.h
