@@ -65,7 +65,25 @@ void MjTwinDebug::TransitionEnvOnlyLocked(mjModel* model, mjData* data) {
   int sid = mj_name2id(model, mjOBJ_SENSOR, "foothold_targets");
   if (sid >= 0) {
     double* targets = data->sensordata + model->sensor_adr[sid];
-    mju_zero(targets, model->sensor_dim[sid]);
+    const int dim = model->sensor_dim[sid];
+    const bool write_targets = (dim >= 3 * Quadruped::ResidualFn::kNumFoot);
+    const bool write_userdata =
+        (model->nuserdata >= 3 * Quadruped::ResidualFn::kNumFoot);
+
+    // Default publish: current foot positions (so "unused" feet never appear to
+    // have a target at the origin in external deployments).
+    if (write_targets || write_userdata) {
+      for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
+        const int gid = debug_residual_.foot_geom_id_[foot];
+        if (gid < 0) continue;
+        const double* foot_pos = data->geom_xpos + 3 * gid;
+        if (write_targets) mju_copy3(targets + 3 * foot, foot_pos);
+        if (write_userdata) mju_copy3(data->userdata + 3 * foot, foot_pos);
+      }
+    } else {
+      // Fallback for unexpected sensor dims.
+      mju_zero(targets, dim);
+    }
 
     const int gait = static_cast<int>(debug_residual_.GetGait());
     if (gait >= 0 && gait < Quadruped::ResidualFn::kNumGait) {
@@ -73,9 +91,14 @@ void MjTwinDebug::TransitionEnvOnlyLocked(mjModel* model, mjData* data) {
       const double footphase =
           2 * mjPI * Quadruped::ResidualFn::kGaitPhase[gait][fr];
       const double t = 0.5 * (1.0 - std::cos(phase - footphase));
-      EvalBezier(fr_bezier_ctrl_, t, targets + 3 * fr);
-      // keep userdata in sync too (optional debug/storage)
-      mju_copy3(data->userdata + 3 * fr, targets + 3 * fr);
+      if (write_targets) {
+        EvalBezier(fr_bezier_ctrl_, t, targets + 3 * fr);
+        if (write_userdata) mju_copy3(data->userdata + 3 * fr, targets + 3 * fr);
+      } else if (write_userdata) {
+        double tmp[3];
+        EvalBezier(fr_bezier_ctrl_, t, tmp);
+        mju_copy3(data->userdata + 3 * fr, tmp);
+      }
     }
   }
 }

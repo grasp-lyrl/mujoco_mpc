@@ -1,6 +1,7 @@
 #include "mjpc/tasks/quadruped/footholds.h"
 
 #include <cmath>
+#include <limits>
 
 #include <mujoco/mujoco.h>
 
@@ -38,12 +39,21 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
                                        const Quadruped::ResidualFn& residual,
                                        double duty_ratio) {
                                         
-    // clear targets
-    int sid = mj_name2id(model, mjOBJ_SENSOR, "foothold_targets");
-    int adr = model->sensor_adr[sid];
-    int dim = model->sensor_dim[sid];
-    double* targets = data->sensordata + adr;
-    mju_zero(targets, dim);
+    // Optional output: publish per-foot world-frame targets for deployment/visualization.
+    // IMPORTANT: do not publish zeros for "unused" feet; always publish a meaningful setpoint.
+    double* targets = nullptr;
+    int targets_dim = 0;
+    const int sid = mj_name2id(model, mjOBJ_SENSOR, "foothold_targets");
+    if (sid >= 0) {
+        targets = data->sensordata + model->sensor_adr[sid];
+        targets_dim = model->sensor_dim[sid];
+        mju_zero(targets, targets_dim);
+    }
+    const bool write_targets =
+        (targets != nullptr) &&
+        (targets_dim >= 3 * Quadruped::ResidualFn::kNumFoot);
+    const bool write_userdata =
+        (model->nuserdata >= 3 * Quadruped::ResidualFn::kNumFoot);
 
     // get torso x-direction
     int torso_bid = mj_name2id(model, mjOBJ_XBODY, "trunk");
@@ -99,6 +109,11 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
         bool now_swing = FootholdPlanner::IsSwinging(phase, footphase, duty_ratio);
         int gid = residual.foot_geom_id_[foot];
         const double* foot_pos = data->geom_xpos + 3 * gid;
+
+        // Default published target: hold current foot position (safe for stance and for
+        // external consumers that treat the vector as unconditional setpoints).
+        if (write_targets) mju_copy3(targets + 3 * foot, foot_pos);
+        if (write_userdata) mju_copy3(data->userdata + 3 * foot, foot_pos);
 
         // If the world is globally safe, immediately drop any latched Beziers and
         // revert to the original "height-only in swing" behavior.
@@ -192,14 +207,6 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
                 bezier_active_[foot] = true;
             }
 
-            if (bezier_active_[foot]) {
-                // Hold the current foot position during stance.
-                mju_copy3(targets + 3 * foot, foot_pos);
-                mju_copy3(data->userdata + 3 * foot, targets + 3 * foot);
-            } else {
-                mju_zero3(targets + 3 * foot);
-                mju_zero3(data->userdata + 3 * foot);
-            }
             continue;
         }
 
@@ -212,14 +219,25 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
 
         // If a Bezier is already latched, just evaluate it.
         if (bezier_active_[foot]) {
-            EvalBezier(foot, swing_phase, targets + 3 * foot);
-            mju_copy3(data->userdata + 3 * foot, targets + 3 * foot);
+            double out[3];
+            EvalBezier(foot, swing_phase, out);
+            if (write_targets) mju_copy3(targets + 3 * foot, out);
+            if (write_userdata) mju_copy3(data->userdata + 3 * foot, out);
             continue;
         }
 
-        // No latched Bezier yet: do not design during swing.
-        mju_zero3(targets + 3 * foot);
-        mju_zero3(data->userdata + 3 * foot);
+        // No latched Bezier yet: publish the same height-only swing target used by the
+        // MJPC residual (vertical clearance), keeping XY at the current foot position.
+        if (write_targets || write_userdata) {
+            double tgt[3] = {foot_pos[0], foot_pos[1], foot_pos[2]};
+            double ground_z = foot_pos[2];
+            if (residual.terrain_) {
+                residual.terrain_->GetHeightFromWorld(data, tgt[0], tgt[1], ground_z);
+            }
+            tgt[2] = ground_z + Quadruped::ResidualFn::kFootRadius + swing_height;
+            if (write_targets) mju_copy3(targets + 3 * foot, tgt);
+            if (write_userdata) mju_copy3(data->userdata + 3 * foot, tgt);
+        }
     }
 }
 
