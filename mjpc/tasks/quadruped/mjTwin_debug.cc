@@ -73,10 +73,14 @@ void MjTwinDebug::TransitionEnvOnlyLocked(mjModel* model, mjData* data) {
     // Default publish: current foot positions (so "unused" feet never appear to
     // have a target at the origin in external deployments).
     if (write_targets || write_userdata) {
+      const double* torso_pos_fallback =
+          (debug_residual_.torso_body_id_ >= 0)
+              ? (data->xipos + 3 * debug_residual_.torso_body_id_)
+              : initial_torso_pos_;
       for (Quadruped::ResidualFn::A1Foot foot : Quadruped::ResidualFn::kFootAll) {
         const int gid = debug_residual_.foot_geom_id_[foot];
-        if (gid < 0) continue;
-        const double* foot_pos = data->geom_xpos + 3 * gid;
+        const double* foot_pos =
+            (gid >= 0) ? (data->geom_xpos + 3 * gid) : torso_pos_fallback;
         if (write_targets) mju_copy3(targets + 3 * foot, foot_pos);
         if (write_userdata) mju_copy3(data->userdata + 3 * foot, foot_pos);
       }
@@ -225,21 +229,16 @@ void MjTwinDebug::ResidualFn::Residual(const mjModel* model,
     }
   } else {
     // Use the same published target that visualization uses (foothold_targets sensor).
-    const double* fr_target = nullptr;
-    double fr_target_fallback[3] = {0.0, 0.0, 0.0};
-    if (double* targets = SensorByName(model, data, "foothold_targets")) {
-      fr_target = targets + 3 * kFootFR;
-    } else {
-      const int gait = static_cast<int>(GetGait());
-      if (gait >= 0 && gait < kNumGait) {
-        const double phase = GetPhase(data->time);
-        const double footphase = 2 * mjPI * kGaitPhase[gait][kFootFR];
-        const double t = 0.5 * (1.0 - std::cos(phase - footphase));
-        EvalBezier(task->fr_bezier_ctrl_, t, fr_target_fallback);
-        fr_target = fr_target_fallback;
-      } else {
-        fr_target = fr_target_fallback;
-      }
+    // Compute the FR target directly from the same Bezier + gait-phase logic used
+    // in publishing, so the residual does not depend on sensor update timing.
+    double fr_target[3] = {foot_pos[kFootFR][0], foot_pos[kFootFR][1],
+                           foot_pos[kFootFR][2]};
+    const int gait = static_cast<int>(GetGait());
+    if (gait >= 0 && gait < kNumGait) {
+      const double phase = GetPhase(data->time);
+      const double footphase = 2 * mjPI * kGaitPhase[gait][kFootFR];
+      const double t = 0.5 * (1.0 - std::cos(phase - footphase));
+      EvalBezier(task->fr_bezier_ctrl_, t, fr_target);
     }
 
     for (A1Foot foot : kFootAll) {
@@ -248,9 +247,10 @@ void MjTwinDebug::ResidualFn::Residual(const mjModel* model,
         residual[counter++] = foot_pos[foot][1] - fr_target[1];
         residual[counter++] = foot_pos[foot][2] - fr_target[2];
       } else {
-        residual[counter++] = foot_pos[foot][0] - task->initial_foot_pos_[foot][0];
-        residual[counter++] = foot_pos[foot][1] - task->initial_foot_pos_[foot][1];
-        residual[counter++] = foot_pos[foot][2] - task->initial_foot_pos_[foot][2];
+        // FR-only debug objective: do not constrain the other feet at all.
+        residual[counter++] = 0.0;
+        residual[counter++] = 0.0;
+        residual[counter++] = 0.0;
       }
     }
   }
