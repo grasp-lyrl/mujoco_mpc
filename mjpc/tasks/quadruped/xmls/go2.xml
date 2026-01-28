@@ -28,7 +28,7 @@
   
       <!-- Knee Joint -->
       <default class="knee">
-        <joint range="-2.7227 -0.83776" actuatorfrcrange="-45.43 45.43"/>
+        <joint range="-2.7227 -0.83776" actuatorfrcrange="-23.7 23.7"/>
         <position kp="60" kv="5" ctrllimited="true" ctrlrange="-2.7227 -0.83776"/>
       </default>
 	  
