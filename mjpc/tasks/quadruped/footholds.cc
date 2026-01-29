@@ -181,7 +181,7 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
                 mju_copy3(ctrl_pts_[foot][0], foot_pos);
 
                 // clearance height: max ground height along the path (4 samples) plus either
-                // swing amplitude or 2cm, whichever is larger.
+                // swing amplitude or 3cm, whichever is larger.
                 double max_ground = query[2];
                 residual.terrain_->GetHeightFromWorld(data, query[0], query[1], max_ground);
                 for (double t : {0.00, 0.33, 0.66, 1.00}) {
@@ -194,7 +194,7 @@ void FootholdPlanner::ComputeFootholds(const mjModel* model, mjData* data,
                     max_ground = mju_max(max_ground, gz);
                 }
                 max_ground += Quadruped::ResidualFn::kFootRadius;
-                const double lift = mju_max(mju_abs(swing_height), 0.02);
+                const double lift = mju_max(mju_abs(swing_height), 0.04);
                 const double z_clear_final = max_ground + lift;
 
                 ctrl_pts_[foot][1][0] = ctrl_pts_[foot][0][0];
